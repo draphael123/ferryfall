@@ -20,6 +20,10 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
     --panel:rgba(10,20,28,.82); --line:rgba(255,201,120,.22); --text:#e8ddc9;
   }
   *{box-sizing:border-box}
+  /* MUST come with !important: the UA's [hidden]{display:none} loses to any class
+     rule that sets display (.row{display:flex}), so the hidden attribute silently
+     does nothing and the "progressive" HUD shows everything anyway. */
+  [hidden]{display:none !important}
   html,body{margin:0;height:100%;overflow:hidden;background:#08121a;
     font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;color:var(--text)}
   canvas{display:block}
@@ -177,7 +181,10 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   #cardIn{max-width:524px;padding:30px 38px;text-align:center}
   #cardIn h1{margin:0 0 4px;font-size:40px;letter-spacing:.26em;color:var(--gold);font-weight:400;text-indent:.26em}
   #cardIn .sub{font-size:12.5px;letter-spacing:.15em;text-transform:uppercase;opacity:.42;margin-bottom:20px}
-  #cardIn p{font-size:14.5px;line-height:1.66;opacity:.86;margin:0 0 12px;text-align:left}
+  /* One sentence. Nobody reads 736 characters before they've been given a reason
+     to care — but they'll read one line, and the tutorial teaches the rest in situ. */
+  #cardIn p.hook{font-size:16px;line-height:1.6;opacity:.9;margin:0 0 4px;text-align:center;
+    max-width:400px;margin-left:auto;margin-right:auto}
   #cardIn em{color:#e0a860;font-style:normal}
   #go{margin-top:14px;background:transparent;border:1px solid var(--gold);color:var(--gold);
     border-radius:7px;padding:10px 30px;font:inherit;font-size:14px;letter-spacing:.13em;cursor:pointer}
@@ -207,16 +214,16 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
     <div id="popBar"><i id="popFill"></i></div>
   </div>
   <div class="sep"></div>
-  <div class="row"><span class="k">Trade</span><span class="v" id="tradeV">—</span></div>
+  <div class="row" id="rowTrade" hidden><span class="k">Trade</span><span class="v" id="tradeV">—</span></div>
   <div class="row"><span class="k">Coin</span><span class="v" id="coin">0</span></div>
   <div class="row"><span class="k">Season</span><span class="v" id="season">Summer</span></div>
-  <div class="row"><span class="k">Weather</span><span class="v" id="weather">Fair</span></div>
-  <div class="row"><span class="k">Ships landed</span><span class="v" id="landed">0</span></div>
-  <div class="row"><span class="k">Crew</span><span class="v" id="staff">0 / 0</span></div>
-  <div class="row"><span class="k">Worst exposure</span><span class="v" id="worst">—</span></div>
-  <div class="sep"></div>
+  <div class="row" id="rowWeather" hidden><span class="k">Weather</span><span class="v" id="weather">Fair</span></div>
+  <div class="row" id="rowLanded" hidden><span class="k">Ships landed</span><span class="v" id="landed">0</span></div>
+  <div class="row" id="rowCrew" hidden><span class="k">Crew</span><span class="v" id="staff">0 / 0</span></div>
+  <div class="row" id="rowExp" hidden><span class="k">Worst exposure</span><span class="v" id="worst">—</span></div>
+  <div class="sep" id="sepNeeds" hidden></div>
   <div id="needs"></div>
-  <div class="sep"></div>
+  <div class="sep" id="sepNext"></div>
   <div id="nextRow"><span class="nlabel">Next</span><span id="next">—</span></div>
   <button id="repairBtn">Repair everything</button>
 </div>
@@ -273,14 +280,8 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
 <div id="card"><div id="cardIn">
   <h1>FERRYFALL</h1>
   <div class="sub">a harbour with no coast</div>
-  <p>Open ocean in every direction. The only place you can stand is a
-     <em>shoal</em> — a pale shallow where a pile still reaches the bottom. Found
-     there, and grow outward plank by plank.</p>
-  <p>Ships come from the horizon, and the big ones need <em>deep water</em>. So
-     the money is always further out than the safety: the shoal that holds your
-     town is also the only thing breaking the sea.</p>
-  <p><em>Shelter and money point opposite ways.</em> Reach as far as you dare —
-     or build a <em>breakwater</em> and make your own lee.</p>
+  <p class="hook">Build a town on open ocean, where the only ground is a shoal
+     and <em>shelter and money point opposite ways</em>.</p>
   <div id="legend">
     <span><i style="background:#e8dcb4"></i>shoal — you can stand</span>
     <span><i style="background:#5fc4b8"></i>shallows</span>
@@ -1224,6 +1225,14 @@ function recomputeNeeds(){
   }
   for(const n of NEEDS)
     cover[n.key] = population <= 0.01 ? 1 : clamp(served[n.key]/population, 0, 1.4);
+  // Reveal ONLY the worst need's building. Every need goes short the instant you
+  // have people, so unlocking on "is short" dumps all four chips at once — which
+  // is the wall we're trying to avoid. One at a time: solve water, and food
+  // becomes the worst, and the Fish Stage appears exactly when you want it.
+  if(population > 0.5){
+    const w = worstNeed();
+    if(cover[w.key] < 1) unlock(w.from, w.short);
+  }
   return cover;
 }
 const worstNeed = () => NEEDS.reduce((a,n)=> cover[n.key] < cover[a.key] ? n : a, NEEDS[0]);
@@ -1665,9 +1674,28 @@ function renderNeeds(){
   }
 }
 
+// The HUD arrives piece by piece as each thing starts mattering. A 426px wall of
+// eleven rows — population 0, trade "—", four needs all "—" — is a wall of numbers
+// about a town that doesn't exist yet.
+function growHUD(){
+  const docks = structures.some(s=>s.ship);
+  const show = (id, on) => { const e=$(id); if(e) e.hidden = !on; };
+  show('#rowTrade',   docks);
+  show('#rowWeather', !stormHeld || uStorm.value > 0.01);   // no weather 'til it can happen
+  show('#rowLanded',  landed > 0);
+  show('#rowCrew',    staffNeed > 0);
+  show('#rowExp',     docks);
+  show('#sepNeeds',   population >= 0.5);
+  $('#needs').hidden = population < 0.5;
+  // One voice at a time: while the tutorial is talking, IT is the next line.
+  const tutTalking = tutOn && tutStep < TUT.length-1;
+  show('#nextRow', !tutTalking);
+  show('#sepNext', !tutTalking);
+}
+
 let popShown = 0;
 function refreshHUD(){
-  recomputeNeeds(); renderNeeds();
+  recomputeNeeds(); renderNeeds(); growHUD();
   const pop = Math.floor(population);
   const pn = $('#popNum');
   if(pop !== popShown){
@@ -1719,9 +1747,24 @@ function refreshHUD(){
   }
   for(const b of document.querySelectorAll('.chip')) {}
 }
+// Ten chips on turn one is a wall — and worse, the mere EXISTENCE of a Deep Berth
+// chip implies you could build one, when you can't and won't for twenty minutes.
+// Drip them instead: each unlock is a small reward rather than an option you have
+// to rule out. Skipping the tutorial hands you everything (you've opted out of
+// being taught, so don't withhold tools).
+let unlocked = new Set(['pontoon','cottage']);
+function unlock(k, why){
+  if(!TYPES[k] || unlocked.has(k)) return;
+  unlocked.add(k);
+  renderPalette();
+  flash(`<b>${TYPES[k].name}</b> — ${why || TYPES[k].hint}`);
+}
+const unlockAll = () => { for(const k of BUILD_ORDER) unlocked.add(k); renderPalette(); };
+
 function renderPalette(){
   const el=$('#palette'); el.innerHTML='';
   for(const k of BUILD_ORDER){
+    if(!unlocked.has(k)) continue;
     const T=TYPES[k];
     const b=document.createElement('button');
     b.className='chip'+(buildType===k?' on':'')+(coin<T.cost?' poor':'');
@@ -1844,6 +1887,7 @@ const TUT = [
     ok:()=>structures.some(s=>s.key==='cottage') },
   { t:'You are surrounded by water nobody can drink. A <b>Cistern</b> catches the rain. Watch the <b>needs</b> in the ledger — the town only grows as well as its worst one.',
     focus:'.chip[data-k="cistern"]',
+    onEnter:()=>unlock('cistern', 'they need water, and the sea is salt'),
     ok:()=>structures.some(s=>s.key==='cistern') },
   { t:'Now walk pontoons <b>out into the blue</b>. Past the shoal nothing touches bottom, so each plank holds the next — and the sea gets a hold on you.',
     focus:'.chip[data-k="pontoon"]',
@@ -1855,9 +1899,12 @@ const TUT = [
     ok:()=>structures.some(s=>depthAt(idx(s.x0,s.z0))>2.5) },
   { t:'Put a <b>Jetty</b> where it\'s 2.5 m deep and coasters will find you. Press <b>3</b> (Look) and hover the water — it will tell you the depth, and how <b>exposed</b> it is.',
     focus:'.chip[data-k="jetty"]',
+    onEnter:()=>unlock('jetty', 'coasters will call here'),
     ok:()=>structures.some(s=>s.key==='jetty') },
   { t:'Bigger ships need deeper water, and deeper water is further from the shoal that shelters you. <b>Shelter and money point opposite ways.</b> Watch <b>Worst exposure</b> climb as you reach.',
     focus:'.chip[data-k="trader"]',
+    onEnter:()=>{ unlock('trader', 'traders — 4.5 m, and further out');
+                  unlock('berth', 'deep berths — 7 m, for clippers'); },
     ok:()=>structures.some(s=>s.key==='trader'||s.key==='berth') },
   { t:'Weather\'s coming, from the season\'s quarter — <b>watch the sea and the sky</b>. Anything wide open will take a beating.',
     focus:'#weather',
@@ -1865,6 +1912,7 @@ const TUT = [
     ok:()=>stormsSeen > 0 },
   { t:'That\'s what a <b>Breakwater</b> is for: it founds on the bed to 8.5 m, shrugs off any weather, and blocks the swell. Build your own lee.',
     focus:'.chip[data-k="breakwater"]',
+    onEnter:()=>unlock('breakwater', 'a mole of your own, to make a lee where there wasn\'t one'),
     ok:()=>structures.some(s=>s.key==='breakwater') },
   { t:'Now you know the whole sea. The wind turns with the year, so no berth stays safe — you\'ll be moving your shelter as often as your money. <b>S</b> turns the season, <b>Esc</b> for settings.',
     focus:null,
@@ -1939,7 +1987,8 @@ function renderSettings(){
   seg('#segMus',['Off','On'], ()=>musOn?1:0, v=>{ musOn=!!v;
       if(gMus && AC) gMus.gain.setTargetAtTime(musOn?0.5:0, AC.currentTime, 0.3); });
   seg('#segEx', ['Off','On'], ()=>showExposure, v=>{ showExposure=v; paintSea(); });
-  seg('#segTut',['Hide','Show'], ()=>tutOn?1:0, v=>{ tutOn=!!v; renderTut(); });
+  seg('#segTut',['Hide','Show'], ()=>tutOn?1:0, v=>{ tutOn=!!v;
+      if(!tutOn){ armFirstStorm(); unlockAll(); } renderTut(); refreshHUD(); });
 }
 function toggleSettings(force){
   const el=$('#settings');
@@ -2138,6 +2187,7 @@ function saveGame(slot){
     held:stormHeld, seen:stormsSeen, rode:stormsRidden, clip:clippersLanded,
     cAct:commActive, cDone:commDone,
     pop:+population.toFixed(2), trade:+trade.toFixed(3), tier:tierSeen, won,
+    unl:[...unlocked],
     structs: structures.map(s=>[s.key, s.x0, s.z0, +s.integrity.toFixed(3)]),
     tut:tutStep, at:Date.now() };
   try{ localStorage.setItem(slotKey(slot), JSON.stringify(data)); return true; }
@@ -2165,6 +2215,10 @@ function loadGame(slot){
   commActive = d.cAct||[]; commDone = d.cDone||[]; dealComms();
   population = d.pop||0; trade = d.trade||0; tierSeen = d.tier||0;
   won = !!d.won; popShown = -1; $('#win').classList.remove('show');
+  // Old saves predate unlocks — give them everything rather than silently
+  // confiscating buildings someone already had.
+  unlocked = new Set(d.unl && d.unl.length ? d.unl : BUILD_ORDER);
+  if(!tutOn) unlockAll();
   rebuildSmoke(); seedGulls();
   activeSlot=slot;
   applySeason(); restaff(); renderTut(); renderDocks(); renderPalette();
@@ -2668,6 +2722,18 @@ let last=performance.now(), hudT=0;
 function frame(){
   const now=performance.now(), dt=Math.min((now-last)/1000, 0.05); last=now;
   resize(); uTime.value=now/1000; uSky.time.value=now/1000;
+  // Title screen: drift slowly over the archipelago. A still frame behind the
+  // card teaches nothing; a moving sea sells the game while you read one line.
+  if(!running && home){
+    // Wide: at r=72 the home shoal fills the frame and you can't see the ocean
+    // you're being sold. Frame the archipelago, and bias the target off-shoal so
+    // the card isn't sitting on top of the only interesting thing.
+    const a = now/1000 * 0.028;
+    const cx = wx(home.ix)*0.45, cz = wz(home.iz)*0.45;
+    camera.position.set(cx + Math.cos(a)*128, 76 + Math.sin(a*0.7)*9, cz + Math.sin(a)*128);
+    controls.target.set(cx, 0, cz);
+    controls.update();
+  }
   updateTilt();                 // the sharp band tracks the zoom, every frame
   sky.position.copy(camera.position);   // dome rides with you — no edge to reach
   updateRain(dt);
@@ -2709,6 +2775,8 @@ function init(s){
   stormsSeen=0; stormHeld=true; tutSeen=-1;
   clippersLanded=0; stormsRidden=0; commActive=[]; commDone=[]; dealComms();
   population=0; capacity=0; trade=0; popT=0; tierSeen=0; popShown=-1; won=false;
+  unlocked = new Set(['pontoon','cottage']);
+  if(!tutOn) unlockAll();
   $('#win').classList.remove('show');
   seedGulls(); rebuildSmoke(); scatterPalms();
   paintBed(); paintSea();
@@ -2737,7 +2805,10 @@ init(5);
 applyOpts(); renderTut(); renderSlots();
 
 $('#go').onclick=()=>startNew(firstFreeSlot());
-$('#tutSkip').onclick=()=>{ tutOn=false; armFirstStorm(); renderTut(); applyOpts(); };
+// Skipping the tutorial means opting out of being TAUGHT, not out of having
+// tools — withholding chips from someone who skipped would just be a puzzle.
+$('#tutSkip').onclick=()=>{ tutOn=false; armFirstStorm(); unlockAll();
+                            renderTut(); refreshHUD(); applyOpts(); };
 $('#winOn').onclick=()=>$('#win').classList.remove('show');
 $('#setClose').onclick=()=>toggleSettings(false);
 $('#setSave').onclick=()=>{ if(saveGame(activeSlot)){ toggleSettings(false); flash('Saved.'); } };
@@ -2780,6 +2851,11 @@ window.__dbg={
               for(const n of NEEDS) o[n.key]=+cover[n.key].toFixed(2);
               o._gate=+needGate().toFixed(2); o._worst=worstNeed().key; return o; },
   speed:(i)=>{ if(i!=null) setSpeed(i); return { speed, mult:SPEEDS[speed] }; },
+  unlocked:()=>[...unlocked],
+  hud:()=>{ const vis=id=>{ const e=$(id); return e && !e.hidden; };
+    return { trade:vis('#rowTrade'), weather:vis('#rowWeather'), landed:vis('#rowLanded'),
+             crew:vis('#rowCrew'), exposure:vis('#rowExp'), needs:vis('#needs'),
+             next:vis('#nextRow') }; },
   gulls:()=>({ loaded:gullBufs.length, of:GULL_FILES.length, nextCryIn:+gullT.toFixed(1),
                audible: !!(AC && audioOn && gulls.visible) }),
   cry:()=>{ cryGull(); return gullBufs.length ? 'played' : 'no buffers loaded'; },
