@@ -90,6 +90,13 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   #tutDots i{height:3px;flex:1;border-radius:2px;background:rgba(255,255,255,.14)}
   #tutDots i.on{background:var(--gold)}
   #tutDots i.done{background:rgba(255,201,120,.4)}
+  /* The tutorial names a control; this is what makes you able to FIND it. */
+  @keyframes tutpulse{
+    0%,100%{ box-shadow:0 0 0 0 rgba(255,201,120,.0); border-color:rgba(255,255,255,.12) }
+    50%    { box-shadow:0 0 0 4px rgba(255,201,120,.28); border-color:var(--gold) }
+  }
+  .tutfocus{ animation:tutpulse 1.5s ease-in-out infinite; border-radius:6px }
+  .srow .tutfocus, #ledger .tutfocus{ padding:1px 4px; margin:-1px -4px }
 
   #settings{position:fixed;inset:0;z-index:25;display:none;align-items:center;justify-content:center;
     background:rgba(4,10,16,.72);backdrop-filter:blur(4px)}
@@ -458,13 +465,63 @@ scene.fog = new THREE.Fog(0xd6e6ea, 95, 265);
 // Colours pass through as THREE.Color (already linear under ColorManagement) and
 // the composer's OutputPass does the encode — matching the fog, which is why the
 // horizon and the fog line up instead of banding against each other.
+const uSky = { time:{value:0}, storm:{value:0} };
 const skyMat = new THREE.ShaderMaterial({
   side:THREE.BackSide, depthWrite:false, fog:false,
-  uniforms:{ top:{value:new THREE.Color(0x3f7fae)}, bot:{value:new THREE.Color(0xd6e6ea)} },
-  vertexShader:`varying float vY;
-    void main(){ vY=normalize(position).y; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-  fragmentShader:`uniform vec3 top; uniform vec3 bot; varying float vY;
-    void main(){ gl_FragColor=vec4(mix(bot, top, smoothstep(-0.02, 0.55, vY)), 1.0); }`,
+  uniforms:{
+    top:{value:new THREE.Color(0x3f7fae)}, bot:{value:new THREE.Color(0xd6e6ea)},
+    cloud:{value:new THREE.Color(0xfdf3e2)}, sun:{value:new THREE.Color(0xffe9b8)},
+    sunDir:{value:new THREE.Vector3(-0.83,0.35,0.44)},
+    uTime:uSky.time, uStorm:uSky.storm,
+  },
+  vertexShader:`varying vec3 vDir;
+    void main(){ vDir=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  // Clouds live in the dome, not in geometry: they cost nothing, they're always
+  // where you're actually looking (the horizon), and they can boil black on cue.
+  // A bare 2-colour gradient was half the frame doing no work at all.
+  fragmentShader:`
+    uniform vec3 top, bot, cloud, sun; uniform vec3 sunDir;
+    uniform float uTime, uStorm;
+    varying vec3 vDir;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+    float noise(vec2 p){
+      vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(hash(i), hash(i+vec2(1,0)), f.x),
+                 mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
+    }
+    float fbm(vec2 p){
+      float v=0.0, a=0.5;
+      for(int i=0;i<5;i++){ v+=a*noise(p); p*=2.03; a*=0.5; }
+      return v;
+    }
+    void main(){
+      vec3 d = normalize(vDir);
+      // Ramp to blue FAST. The play camera looks down, so you almost only ever
+      // see low sky - at a 0.55 ramp that is all horizon-cream, and cream clouds
+      // on a cream sky are no clouds at all. The bottom colour still has to equal
+      // the fog at the horizon itself, or the sea meets the sky at a seam.
+      vec3 col = mix(bot, top, smoothstep(-0.02, 0.30, d.y));
+
+      // sun: a disc plus a wide bloom, killed by cloud when it turns
+      float sd = dot(d, normalize(sunDir));
+      float disc = smoothstep(0.9975, 0.9990, sd);
+      float bloom = pow(max(sd,0.0), 180.0);
+      col += sun * (disc*2.2 + bloom*0.85) * (1.0-uStorm*0.95);
+
+      // Project onto a plane overhead so the layer lies FLAT and gets real
+      // perspective — clouds bunching toward the horizon is the whole effect.
+      vec2 p = d.xz / max(d.y, 0.055);
+      p = p*0.30 + vec2(uTime*0.0055, uTime*0.0022);
+      float f = fbm(p + fbm(p*0.55)*0.6);
+      float cover = mix(0.46, 0.30, uStorm);        // storms overcast the sky
+      float c = smoothstep(cover, cover+mix(0.22,0.09,uStorm), f);
+      c *= smoothstep(0.015, 0.20, d.y);            // don't paint below the horizon
+      vec3 cc = mix(cloud, cloud*0.30, uStorm);     // and blacken them
+      // underlight the bases warmly at golden hour
+      cc = mix(cc, cc*vec3(1.05,0.93,0.82), (1.0-uStorm)*smoothstep(0.5,0.05,d.y));
+      col = mix(col, cc, c*mix(0.88, 0.97, uStorm));
+      gl_FragColor = vec4(col, 1.0);
+    }`,
 });
 const sky = new THREE.Mesh(new THREE.SphereGeometry(460, 24, 16), skyMat);
 sky.frustumCulled = false;
@@ -646,7 +703,7 @@ scene.add(openSea);
 const C_SHOAL=new THREE.Color(0xe8dcb4), C_SHALLOW=new THREE.Color(0x5fc4b8);
 const C_MID=new THREE.Color(0x2a7a94), C_DEEP=new THREE.Color(0x123a5a);
 let showExposure = 0;
-const C_EXPOSED=new THREE.Color(0xd86a5a);
+const C_EXPOSED=new THREE.Color(0xc4564a);
 
 function paintSea(){
   const col=seaGeo.attributes.color.array;
@@ -666,8 +723,12 @@ function paintSea(){
       else if(d<6.5)      _c.copy(C_SHALLOW).lerp(C_MID, (d-2.6)/3.9);
       else                _c.copy(C_MID).lerp(C_DEEP, smoothstep(6.5, 12, d));
       if(showExposure){
+        // Only tint what's actually AT RISK, and gently. A flat 50% red lerp
+        // across all open water turned the whole sea salmon and read as a
+        // rendering fault — an overlay that makes the game look broken is an
+        // overlay nobody leaves on, which defeats the point of showing it.
         const ix=i%N, iz=(i/N)|0;
-        _c.lerp(C_EXPOSED, exposureAt(ix,iz)*0.5);
+        _c.lerp(C_EXPOSED, smoothstep(0.55, 1.0, exposureAt(ix,iz)) * 0.20);
       }
     }
     col[i*4]=_c.r; col[i*4+1]=_c.g; col[i*4+2]=_c.b; col[i*4+3]=a;
@@ -1051,16 +1112,27 @@ function stepShip(sh, dt){
 }
 
 // ═════════════════════════════════════════════════════════════════════ storms
-let stormT = 0, swell = 0, stormOn = false;
+let stormT = 0, swell = 0, stormOn = false, stormsSeen = 0, stormHeld = true;
+// The first storm used to arrive on a blind 95 s timer, so it could hit before you
+// owned anything (meaningless) or long after you'd stopped watching. Hold it back
+// until the tutorial arms it — i.e. until you have a dock out in the weather and
+// something to actually lose.
+function armFirstStorm(){
+  if(!stormHeld) return;
+  stormHeld = false;
+  stormT = STORM_EVERY - STORM_LEN - 16;   // drop the player straight into "rising"
+}
 function weatherPhase(){
+  if(stormHeld) return 'fair';
   const t = stormT % STORM_EVERY;
   if(t > STORM_EVERY-STORM_LEN) return 'storm';
   if(t > STORM_EVERY-STORM_LEN-18) return 'rising';
   return 'fair';
 }
 function stepWeather(dt){
-  stormT += dt;
+  if(!stormHeld) stormT += dt;
   const ph = weatherPhase();
+  if(ph==='storm' && !stormOn) stormsSeen++;   // tutorial waits on this
   stormOn = ph==='storm';
   const target = ph==='storm' ? 1 : ph==='rising' ? 0.35 : 0.06;
   swell = lerp(swell, target, 1-Math.exp(-dt*0.6));
@@ -1105,6 +1177,10 @@ function repairAll(){
 // ═══════════════════════════════════════════════════════════════════════ sim
 function step(dt){
   clock += dt;
+  // Safety on the scripted first storm: the tutorial arms it, but a player who
+  // skipped the tutorial — or who never builds a dock — must not end up in a
+  // world where the weather simply never happens.
+  if(stormHeld && (!tutOn || clock > 240)) armFirstStorm();
   stepWeather(dt);
   for(const s of structures){
     if(!s.ship || !s.open) continue;
@@ -1154,7 +1230,9 @@ function refreshHUD(){
   $('#season').textContent = SEASONS[seasonI].name;
   const ph = weatherPhase();
   const w = $('#weather');
-  w.className = 'v ' + (ph==='storm'?'storm':ph==='rising'?'rising':'');
+  // keep any tutorial highlight — assigning className wholesale silently drops it
+  w.className = 'v ' + (ph==='storm'?'storm':ph==='rising'?'rising':'')
+              + (w.classList.contains('tutfocus') ? ' tutfocus' : '');
   w.textContent = ph==='storm' ? `STORM from the ${DIRNAME()}`
                 : ph==='rising' ? `Rising · ${DIRNAME()}`
                 : `Fair · wind ${DIRNAME()}`;
@@ -1184,12 +1262,17 @@ function renderPalette(){
     const T=TYPES[k];
     const b=document.createElement('button');
     b.className='chip'+(buildType===k?' on':'')+(coin<T.cost?' poor':'');
+    b.dataset.k = k;                       // the tutorial's focus ring hangs off this
     const need = T.maxDepth ? `≤${T.maxDepth.toFixed(1)} m` : `${T.need.toFixed(2)} m`;
     b.innerHTML=`<b>${T.name}</b><span>${T.cost} · ${need}</span>`;
     b.title=T.hint;
     b.onclick=()=>{ buildType=k; renderPalette(); flash(`<b>${T.name}</b> — ${T.hint}`); };
     el.appendChild(b);
   }
+  // The chips are rebuilt on every coin change and every chip click, which throws
+  // away the tutorial's highlight class. Reapply here rather than at each call
+  // site — otherwise the very first step silently points at nothing.
+  applyFocus();
 }
 function renderDocks(){
   const el=$('#dockList');
@@ -1209,34 +1292,71 @@ function renderDocks(){
 }
 
 // ══════════════════════════════════════════════════════════════════ tutorial
+// `focus` is a CSS selector for the control the step is talking about — it gets
+// pulsed. Naming a thing ("take a Pontoon") and leaving the player to hunt six
+// identical chips for it was the single worst thing about the old tutorial.
+// `onEnter` fires once, for steps that need to DO something (like showing the
+// exposure overlay at the exact moment exposure starts to matter).
 const TUT = [
-  { t:'Everything out here is deep except the <b>pale shoals</b>. Take a <b>Pontoon</b> and click one — a pile can still reach the bed there.',
+  { t:'Everything out here is too deep to stand in — except the <b>pale shoals</b>. Take a <b>Pontoon</b> and click the ringed sand: a pile still reaches the bed there.',
+    focus:'.chip[data-k="pontoon"]',
     ok:()=>structures.length>0 },
-  { t:'A <b>Raft Cottage</b> on the shoal gives you crew. Cottages are safe here; the shoal breaks the sea.',
+  { t:'Good. A <b>Raft Cottage</b> gives you crew, and the shoal shelters it. Everything you put here is safe — and worth nothing on its own.',
+    focus:'.chip[data-k="cottage"]',
     ok:()=>structures.some(s=>s.key==='cottage') },
-  { t:'Now walk pontoons <b>outward</b>, off the shoal. Past it nothing touches bottom, so each piece holds the next.',
+  { t:'Now walk pontoons <b>out into the blue</b>. Past the shoal nothing touches bottom, so each plank holds the next — and the sea gets a hold on you.',
+    focus:'.chip[data-k="pontoon"]',
+    // Deliberately NOT auto-enabling the exposure overlay here. It tints every
+    // exposed cell, which is most of the map — that's wallpaper, not information,
+    // and it makes the sea look like a rendering fault. It needs to become a
+    // build-planning aid (near your town, while the Build tool is up) before it's
+    // worth showing anyone. Teach exposure through Look and the ledger instead.
     ok:()=>structures.some(s=>depthAt(idx(s.x0,s.z0))>2.5) },
-  { t:'Place a <b>Jetty</b> where it\'s 2.5 m deep. Coasters will find you.',
+  { t:'Put a <b>Jetty</b> where it\'s 2.5 m deep and coasters will find you. Press <b>3</b> (Look) and hover the water — it will tell you the depth, and how <b>exposed</b> it is.',
+    focus:'.chip[data-k="jetty"]',
     ok:()=>structures.some(s=>s.key==='jetty') },
-  { t:'Bigger ships need deeper water — so the money is always further out than the shelter. Watch <b>Worst exposure</b> as you reach.',
+  { t:'Bigger ships need deeper water, and deeper water is further from the shoal that shelters you. <b>Shelter and money point opposite ways.</b> Watch <b>Worst exposure</b> climb as you reach.',
+    focus:'.chip[data-k="trader"]',
     ok:()=>structures.some(s=>s.key==='trader'||s.key==='berth') },
-  { t:'A storm is coming, from the season\'s quarter. Anything wide open will take it. A <b>Breakwater</b> founds on the bed to 4 m and blocks the swell — build your own lee.',
+  { t:'Weather\'s coming, from the season\'s quarter — <b>watch the sea and the sky</b>. Anything wide open will take a beating.',
+    focus:'#weather',
+    onEnter:()=>{ armFirstStorm(); },
+    ok:()=>stormsSeen > 0 },
+  { t:'That\'s what a <b>Breakwater</b> is for: it founds on the bed to 8.5 m, shrugs off any weather, and blocks the swell. Build your own lee.',
+    focus:'.chip[data-k="breakwater"]',
     ok:()=>structures.some(s=>s.key==='breakwater') },
-  { t:'That\'s the whole sea: shelter and money point opposite ways. The wind turns with the year, so nowhere stays safe. <b>Esc</b> for settings.',
+  { t:'Now you know the whole sea. The wind turns with the year, so no berth stays safe — you\'ll be moving your shelter as often as your money. <b>S</b> turns the season, <b>Esc</b> for settings.',
+    focus:null,
     ok:()=>false },
 ];
-let tutStep=0, tutOn=true;
+let tutStep=0, tutOn=true, tutSeen=-1;
 function tickTutorial(){
   if(!tutOn) return;
-  let guard=0;
-  while(tutStep<TUT.length-1 && TUT[tutStep].ok() && guard++<20) tutStep++;
+  let guard=0, moved=false;
+  while(tutStep<TUT.length-1 && TUT[tutStep].ok() && guard++<20){ tutStep++; moved=true; }
+  if(moved) $('#tut').animate(
+    [{transform:'translateX(0)'},{transform:'translateX(4px)'},{transform:'translateX(0)'}],
+    {duration:260});
   renderTut();
 }
 function renderTut(){
   const el=$('#tut'); el.classList.toggle('hide', !tutOn);
-  if(!tutOn) return;
+  if(!tutOn){ clearFocus(); return; }
   $('#tutBody').innerHTML = TUT[tutStep].t;
   $('#tutDots').innerHTML = TUT.map((_,i)=>`<i class="${i===tutStep?'on':i<tutStep?'done':''}"></i>`).join('');
+  if(tutSeen !== tutStep){
+    tutSeen = tutStep;
+    TUT[tutStep].onEnter?.();      // fire once, on arrival — not every render
+  }
+  applyFocus();
+}
+function clearFocus(){ for(const e of document.querySelectorAll('.tutfocus')) e.classList.remove('tutfocus'); }
+function applyFocus(){
+  clearFocus();
+  const sel = tutOn && TUT[tutStep] && TUT[tutStep].focus;
+  if(!sel) return;
+  const el = document.querySelector(sel);
+  if(el) el.classList.add('tutfocus');
 }
 
 // ══════════════════════════════════════════════════════════════════ settings
@@ -1289,6 +1409,7 @@ const slotKey=i=>'ferryfall.slot'+i;
 function saveGame(slot){
   if(slot==null) return false;
   const data={ v:3, seed, coin, clock, seasonI, landed, stormT,
+    held:stormHeld, seen:stormsSeen,
     structs: structures.map(s=>[s.key, s.x0, s.z0, +s.integrity.toFixed(3)]),
     tut:tutStep, at:Date.now() };
   try{ localStorage.setItem(slotKey(slot), JSON.stringify(data)); return true; }
@@ -1310,6 +1431,8 @@ function loadGame(slot){
   for(const [k,x,z,g] of d.structs) if(TYPES[k]){ const s=addStructRaw(k,x,z); if(g!=null) s.integrity=g; }
   recomputeAnchors();
   coin=d.coin; clock=d.clock||0; landed=d.landed||0; stormT=d.stormT||0; tutStep=d.tut||0;
+  stormHeld = d.held !== undefined ? d.held : false;
+  stormsSeen = d.seen||0; tutSeen=-1;
   activeSlot=slot;
   applySeason(); restaff(); renderTut(); renderDocks(); renderPalette(); refreshHUD();
   return true;
@@ -1346,6 +1469,44 @@ function firstFreeSlot(){ for(let i=0;i<SLOTS;i++) if(!slotInfo(i)) return i; re
 setInterval(()=>{ if(running && activeSlot!=null) saveGame(activeSlot); }, 20000);
 
 // ═════════════════════════════════════════════════════════════════════ input
+// ── rain ────────────────────────────────────────────────────────────────────
+// The sea reacted to storms and the air did nothing. Line segments in a box that
+// rides the camera, sheared along the season's wind so the weather has a
+// direction you can see — the same direction that's wrecking your docks.
+const RAIN_N = 1400, RAIN_BOX = 90, RAIN_H = 46;
+const rainGeo = new THREE.BufferGeometry();
+const rainPos = new Float32Array(RAIN_N*2*3);
+const rainSeed = [];
+{
+  const r = mulberry32(99);
+  for(let i=0;i<RAIN_N;i++) rainSeed.push({ x:(r()-0.5)*RAIN_BOX, y:r()*RAIN_H,
+                                            z:(r()-0.5)*RAIN_BOX, v:0.75+r()*0.5 });
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos,3));
+}
+const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({
+  color:0xc8dcea, transparent:true, opacity:0, depthWrite:false, toneMapped:false }));
+rain.frustumCulled = false; rain.visible = false;
+scene.add(rain);
+function updateRain(dt){
+  const m = uStorm.value;
+  rain.visible = m > 0.04;
+  if(!rain.visible) return;
+  rain.material.opacity = m*0.5;
+  const [wx0, wz0] = windDir();
+  const cx = controls.target.x, cz = controls.target.z;
+  for(let i=0;i<RAIN_N;i++){
+    const s = rainSeed[i];
+    s.y -= (48 + s.v*26) * m * dt;
+    if(s.y < 0){ s.y += RAIN_H; }
+    // wrap around the camera so the box never runs out from under you
+    let px = cx + s.x, pz = cz + s.z;
+    const lean = 5.5 * m;
+    rainPos[i*6+0]=px;                rainPos[i*6+1]=s.y;      rainPos[i*6+2]=pz;
+    rainPos[i*6+3]=px - wx0*lean*0.5; rainPos[i*6+4]=s.y-2.1;  rainPos[i*6+5]=pz - wz0*lean*0.5;
+  }
+  rainGeo.attributes.position.needsUpdate = true;
+}
+
 const ray=new THREE.Raycaster(), ptr=new THREE.Vector2();
 const ghost=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
   new THREE.MeshBasicMaterial({ color:0x9fe0a0, transparent:true, opacity:0.42, toneMapped:false }));
@@ -1463,6 +1624,11 @@ function applyWeatherLook(){
   skyMat.uniforms.top.value.copy(_cA.setHex(S.sky).lerp(_cB.setHex(STORM_LOOK.sky), m));
   renderer.toneMappingExposure = lerp(1.16, STORM_LOOK.exposure, m);
   openSea.material.color.copy(_cA.setHex(0x123a5a).lerp(_cB.setHex(0x0c1620), m));
+  uSky.storm.value = m;
+  skyMat.uniforms.cloud.value.copy(_cA.setHex(S.fog).lerp(_cB.setHex(0xffffff), 0.9));
+  skyMat.uniforms.sun.value.copy(_cA.setHex(S.tint));
+  // the disc has to sit exactly where the key light is, or golden hour has two suns
+  skyMat.uniforms.sunDir.value.copy(key.position).normalize();
 }
 
 // ══════════════════════════════════════════════════════════════ post / render
@@ -1506,12 +1672,17 @@ addEventListener('resize', resize);
 let last=performance.now(), hudT=0;
 function frame(){
   const now=performance.now(), dt=Math.min((now-last)/1000, 0.05); last=now;
-  resize(); uTime.value=now/1000;
+  resize(); uTime.value=now/1000; uSky.time.value=now/1000;
   updateTilt();                 // the sharp band tracks the zoom, every frame
+  sky.position.copy(camera.position);   // dome rides with you — no edge to reach
+  updateRain(dt);
   if(running){
     step(dt);
     hudT += dt;
-    if(hudT > 0.5){ hudT=0; refreshHUD(); renderDocks(); }   // fetch is a raymarch; don't do it every frame
+    // fetch is a raymarch; don't do it every frame. tickTutorial belongs here too:
+    // it used to run ONLY on placement, so any time-based step ("you've seen a
+    // storm") could never advance and the tutorial dead-ended.
+    if(hudT > 0.5){ hudT=0; refreshHUD(); renderDocks(); tickTutorial(); }
   }
   if(hintT && clock>hintT){ $('#hint').classList.remove('show'); hintT=0; }
   updateHomeRing();
@@ -1530,6 +1701,7 @@ function init(s){
   structures.length=0; ships.length=0; uidNext=1;
   structGroup.clear(); shipGroup.clear();
   coin=START_COIN; clock=0; landed=0; stormT=0; swell=0; seasonI=0;
+  stormsSeen=0; stormHeld=true; tutSeen=-1;
   paintBed(); paintSea();
   restaff(); applySeason();
   // Frame the home shoal. Targeting the map centre put 8 m of empty ocean in the
@@ -1555,7 +1727,7 @@ init(5);
 applyOpts(); renderTut(); renderSlots();
 
 $('#go').onclick=()=>startNew(firstFreeSlot());
-$('#tutSkip').onclick=()=>{ tutOn=false; renderTut(); applyOpts(); };
+$('#tutSkip').onclick=()=>{ tutOn=false; armFirstStorm(); renderTut(); applyOpts(); };
 $('#setClose').onclick=()=>toggleSettings(false);
 $('#setSave').onclick=()=>{ if(saveGame(activeSlot)){ toggleSettings(false); flash('Saved.'); } };
 $('#setNewSea').onclick=()=>{ if(!confirm('Start a brand new sea? This harbour will be lost.')) return;
@@ -1581,11 +1753,14 @@ window.__dbg={
     const n=structures.length, name=structures[o].name, r=demolish(structures[o]);
     return { ok:r, name, removed:n-structures.length }; },
   structExposure:(ix,iz)=>{ const o=occ[idx(ix,iz)]; return o===-1?null:structExposure(structures[o]); },
-  storm:(on)=>{ stormT = on ? STORM_EVERY-STORM_LEN+0.1 : 0; return weatherPhase(); },
+  // must release the tutorial's storm-hold, or this silently does nothing
+  storm:(on)=>{ stormHeld=false; stormT = on ? STORM_EVERY-STORM_LEN+0.1 : 0; return weatherPhase(); },
   weather:()=>weatherPhase(),
   repair:()=>repairAll(),
   sim:(secs,dt)=>{ dt=dt||1/30; const n=Math.round(secs/dt);
                    for(let k=0;k<n;k++) step(dt); refreshHUD(); renderDocks(); return __dbg.state(); },
+  stormsSeen:()=>stormsSeen, held:()=>stormHeld, stormT:()=>+stormT.toFixed(1),
+  tick:()=>{ tickTutorial(); return tutStep; },
   state:()=>({ coin:Math.round(coin), clock:+clock.toFixed(1), landed, weather:weatherPhase(),
     season:SEASONS[seasonI].name, wind:DIRNAME(), residents, staffNeed, ships:ships.length,
     structures: structures.map(s=>({ name:s.name, at:[s.x0,s.z0], open:s.open,
