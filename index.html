@@ -1,4 +1,4 @@
-<!doctype html>
+?<!doctype html>
 <meta charset="utf-8">
 <title>FERRYFALL</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1255,6 +1255,7 @@ function restaff(){
   // crew count follows the housing — rebuild only when it actually moves, since
   // restaff() runs on every placement and every season change
   if(residents !== prevRes) rebuildCrew();
+  assignWork();       // who works where changes whenever a dock opens or shuts
 }
 
 // ══════════════════════════════════════════════════════════════════════ ships
@@ -1386,8 +1387,11 @@ function makeShip(dock){
 }
 function stepShip(sh, dt){
   if(sh.dwell>0){
+    shipAt.add(sh.dock.uid);          // crew gather at a berth that's working
+    lastLandingDock = sh.dock;        // and newcomers walk off THIS boat
     sh.dwell -= dt;
     if(sh.dwell<=0){
+      shipAt.delete(sh.dock.uid);
       coin += sh.S.cargo; landed++;
       // Bigger ships mean more prosperity, so the reach out into the weather is
       // what actually grows the town — not just what pays for it.
@@ -1559,8 +1563,15 @@ function peopleLeave(n, why){
   const before = Math.floor(population);
   population = Math.max(0, population - n);
   const gone = before - Math.floor(population);
-  if(gone > 0) flash(`<span class="bad">${gone} left on the morning boat</span> — ${why}.`, true);
+  if(gone <= 0) return;
+  // Remove FIRST, then announce whoever actually went. Announcing before the fact
+  // let the message name someone who was still standing there.
+  justLeft = [];
   restaff();
+  const who = justLeft.find(v=>v.name);
+  // "3 left" is a statistic; "Merrin left on the morning boat" is a thing you did.
+  if(who) flash(`<span class="bad">${who.name} left on the morning boat</span>${gone>1?` — and ${gone-1} more`:''} — ${why}.`, true);
+  else flash(`<span class="bad">${gone} left on the morning boat</span> — ${why}.`, true);
 }
 
 function step(dt){
@@ -2219,6 +2230,7 @@ function loadGame(slot){
   // confiscating buildings someone already had.
   unlocked = new Set(d.unl && d.unl.length ? d.unl : BUILD_ORDER);
   if(!tutOn) unlockAll();
+  villagers.length=0; freeNames=[...NAMES]; shipAt.clear(); lastLandingDock=null;
   rebuildSmoke(); seedGulls();
   activeSlot=slot;
   applySeason(); restaff(); renderTut(); renderDocks(); renderPalette();
@@ -2427,44 +2439,139 @@ function updateSmoke(dt){
 // had cargo and cranes and lanterns and not one person to use any of it. They
 // walk cell-to-cell over your own structures, so the town's shape is their world:
 // build a longer pier and they walk further down it.
+// The game says population is the goal, but you never MET one — they were grey
+// capsules random-walking between cells for no reason. Nothing they did was
+// caused by anything, and nothing they did told you anything. Now each one is a
+// persistent individual with a home, maybe a job, and a reason to be where it is.
 const crewGeo = new THREE.CapsuleGeometry(0.10, 0.26, 3, 6);
-const crewMat = new THREE.MeshStandardMaterial({ color:0x3b4a63, roughness:0.9 });
-let crew=null, crewState=[];
-const CREW_MAX = 26;
+const crewMat = new THREE.MeshStandardMaterial({ color:0x3b4a63, roughness:0.9,
+                                                 vertexColors:true });
+let crew=null, villagers=[], lastLandingDock=null;
+const CREW_MAX = 60;
+// A few notables, not a hundred — you can't care about a hundred. These arrive on
+// a ship with a name, and when the sea takes a building it names who left. That's
+// the whole point: a number that goes down is a statistic; "Merrin left on the
+// morning boat" is a thing you did.
+const NAMES = ['Merrin','Wren','Ash','Coll','Sorrel','Bry','Fen','Marek','Nell','Sig',
+               'Tam','Odd','Rill','Hale','Juno'];
+let freeNames = [];
+const CLOTHES = [0x3b4a63, 0x5a4a3c, 0x6b4550, 0x40563f, 0x5c5342, 0x334a52];
+const _col = new THREE.Color();
+
+function structCell(s){
+  if(!s) return null;
+  const cs = cellsOf(s), c = cs[Math.floor(Math.random()*cs.length)];
+  return { x: wx(c.ix) + (Math.random()-0.5)*0.7, z: wz(c.iz) + (Math.random()-0.5)*0.7 };
+}
+// NOT `pick` — that's already the raycaster's, and both are module-scope.
+const anyOf = arr => arr.length ? arr[Math.floor(Math.random()*arr.length)] : null;
+
+function addVillager(){
+  if(villagers.length >= CREW_MAX) return;
+  const home = anyOf(structures.filter(s=>s.key==='cottage'));
+  if(!home) return;
+  const v = { home, work:null, dwell:0, t:1, sp:0.55+Math.random()*0.5,
+              bob:Math.random()*6.28, cloth:CLOTHES[Math.floor(Math.random()*CLOTHES.length)],
+              name:null };
+  // Arrive OFF THE BOAT. A newcomer walking up your pier is the whole
+  // trade→population chain in one shot — otherwise it's a counter ticking.
+  const from = lastLandingDock && structures.includes(lastLandingDock)
+             ? structCell(lastLandingDock) : structCell(home);
+  v.x = from.x; v.z = from.z;
+  const h = structCell(home);
+  v.tx = h.x; v.tz = h.z; v.t = 0;
+  if(freeNames.length && Math.random() < 0.3){
+    v.name = freeNames.splice(Math.floor(Math.random()*freeNames.length), 1)[0];
+    const how = lastLandingDock ? `came in on the ${SEASONS[seasonI].name.toLowerCase()} boat`
+                                : 'settled on the shoal';
+    flash(`<b>${v.name}</b> ${how}.`);
+  }
+  villagers.push(v);
+}
+let justLeft = [];
+function removeVillager(){
+  if(!villagers.length) return null;
+  // Mostly take an unnamed one, so losing Merrin stays rare enough to land. But
+  // it MUST be able to happen: if notables can never leave, "Coll left on the
+  // morning boat" is a LIE — the message named someone still standing on the
+  // shoal. Whoever actually goes is who gets named.
+  const unnamedIdx = villagers.map((v,i)=>[v,i]).filter(([v])=>!v.name).map(([,i])=>i);
+  const i = (unnamedIdx.length && Math.random() > 0.25)
+          ? unnamedIdx[Math.floor(Math.random()*unnamedIdx.length)]
+          : Math.floor(Math.random()*villagers.length);
+  const [gone] = villagers.splice(i,1);
+  if(gone.name) freeNames.push(gone.name);
+  justLeft.push(gone);
+  return gone;
+}
 function rebuildCrew(){
-  if(crew){ scene.remove(crew); crew=null; }
-  crewState = [];
-  const n = Math.min(CREW_MAX, residents);
-  if(!n || !structures.length) return;
-  crew = new THREE.InstancedMesh(crewGeo, crewMat, n);
-  crew.frustumCulled = false; crew.castShadow = true;
-  scene.add(crew);
-  const r = mulberry32(seed*23+9);
-  for(let i=0;i<n;i++){
-    const c = randCell(r);
-    crewState.push({ x:c.x, z:c.z, tx:c.x, tz:c.z, t:1, sp:0.5+r()*0.5, bob:r()*6.28 });
+  const want = Math.min(CREW_MAX, Math.floor(population));
+  while(villagers.length < want) addVillager();
+  while(villagers.length > want) removeVillager();
+  for(const v of villagers) if(!structures.includes(v.home))
+    v.home = anyOf(structures.filter(s=>s.key==='cottage')) || v.home;
+  if(!crew){
+    crew = new THREE.InstancedMesh(crewGeo, crewMat, CREW_MAX);
+    crew.frustumCulled=false; crew.castShadow=true;
+    crew.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CREW_MAX*3), 3);
+    scene.add(crew);
+  }
+  crew.count = villagers.length;
+  villagers.forEach((v,i)=>{ _col.setHex(v.cloth); crew.setColorAt(i, _col); });
+  if(crew.instanceColor) crew.instanceColor.needsUpdate = true;
+}
+
+// Where does this person want to be, and why? Every answer here is a system you
+// can now SEE: the tavern fills when there's cheer, the jetty crowds when a ship
+// is in, the fish stage has someone standing on it.
+function pickGoal(v){
+  const busy = v.work && shipAt.has(v.work.uid);
+  if(busy) return structCell(v.work);                       // a ship's in — get to work
+  const r = Math.random();
+  if(v.work && r < 0.45) return structCell(v.work);
+  if(r < 0.62){
+    const pub = anyOf(structures.filter(s=>s.key==='tavern' && s.open));
+    if(pub && cover.cheer > 0.2) return structCell(pub);     // only if there's cheer to have
+  }
+  if(r < 0.72){
+    const w = anyOf(structures.filter(s=>s.serves && s.open));
+    if(w) return structCell(w);
+  }
+  return structCell(v.home) || structCell(anyOf(structures));
+}
+const shipAt = new Set();
+function assignWork(){
+  const docks = structures.filter(s=>s.ship && s.open);
+  let di = 0;
+  for(const v of villagers){
+    v.work = null;
+    if(!docks.length) continue;
+    // spread the crew across the docks that are actually open
+    if(di < docks.length * 3){ v.work = docks[di % docks.length]; di++; }
   }
 }
-function randCell(r){
-  const s = structures[Math.floor((r?r():Math.random())*structures.length)];
-  if(!s) return {x:0, z:0};
-  const cs = cellsOf(s), c = cs[Math.floor((r?r():Math.random())*cs.length)];
-  return { x:wx(c.ix), z:wz(c.iz) };
-}
 function updateCrew(dt){
-  if(!crew) return;
-  crewState.forEach((p,i)=>{
-    p.t += dt*p.sp*0.5;
-    if(p.t >= 1){                       // arrived — pick somewhere else to be
-      p.x = p.tx; p.z = p.tz;
-      const c = randCell(null);
-      p.tx = c.x + (Math.random()-0.5)*0.7; p.tz = c.z + (Math.random()-0.5)*0.7;
-      p.t = 0;
+  if(!crew || !villagers.length) return;
+  const gate = needGate();
+  villagers.forEach((v,i)=>{
+    if(v.dwell > 0){ v.dwell -= dt; }
+    else {
+      // Mood is in the WALK: a town that's short of everything trudges, a town
+      // that has what it needs strides. A free read on whether you're alright.
+      v.t += dt * v.sp * (0.30 + gate*0.42);
+      if(v.t >= 1){
+        v.x = v.tx; v.z = v.tz; v.t = 0;
+        v.dwell = 0.6 + Math.random()*3.5;
+        const g = pickGoal(v);
+        if(g){ v.tx = g.x; v.tz = g.z; }
+      }
     }
-    const x = lerp(p.x, p.tx, p.t), z = lerp(p.z, p.tz, p.t);
-    const bob = Math.abs(Math.sin(p.t*22 + p.bob))*0.045;   // a walking bounce
+    const x = lerp(v.x, v.tx, v.t), z = lerp(v.z, v.tz, v.t);
+    const moving = v.dwell <= 0 && (Math.abs(v.tx-v.x) + Math.abs(v.tz-v.z)) > 0.1;
+    const bob = moving ? Math.abs(Math.sin(v.t*20 + v.bob)) * (0.02 + gate*0.035) : 0;
     _v3.set(x, WL + 0.42 + bob, z);
-    _q.setFromEuler(new THREE.Euler(0, Math.atan2(p.tx-p.x, p.tz-p.z), 0));
+    // heads down when it's grim
+    _q.setFromEuler(new THREE.Euler((1-gate)*0.22, Math.atan2(v.tx-v.x, v.tz-v.z), 0));
     _m4.compose(_v3, _q, _s3.set(1,1,1));
     crew.setMatrixAt(i, _m4);
   });
@@ -2777,6 +2884,8 @@ function init(s){
   population=0; capacity=0; trade=0; popT=0; tierSeen=0; popShown=-1; won=false;
   unlocked = new Set(['pontoon','cottage']);
   if(!tutOn) unlockAll();
+  villagers.length=0; freeNames=[...NAMES]; shipAt.clear(); lastLandingDock=null;
+  if(crew) crew.count = 0;
   $('#win').classList.remove('show');
   seedGulls(); rebuildSmoke(); scatterPalms();
   paintBed(); paintSea();
@@ -2851,6 +2960,13 @@ window.__dbg={
               for(const n of NEEDS) o[n.key]=+cover[n.key].toFixed(2);
               o._gate=+needGate().toFixed(2); o._worst=worstNeed().key; return o; },
   speed:(i)=>{ if(i!=null) setSpeed(i); return { speed, mult:SPEEDS[speed] }; },
+  villagers:()=>villagers.map(v=>({ name:v.name, home:!!v.home,
+    work: v.work ? v.work.name : null, at:[+v.x.toFixed(1), +v.z.toFixed(1)],
+    walking: v.dwell<=0 })),
+  folk:()=>({ count:villagers.length, named:villagers.filter(v=>v.name).map(v=>v.name),
+              working:villagers.filter(v=>v.work).length,
+              shipsAtDock:shipAt.size, lastDock:lastLandingDock?lastLandingDock.name:null,
+              drawn: crew ? crew.count : 0 }),
   unlocked:()=>[...unlocked],
   hud:()=>{ const vis=id=>{ const e=$(id); return e && !e.hidden; };
     return { trade:vis('#rowTrade'), weather:vis('#rowWeather'), landed:vis('#rowLanded'),
