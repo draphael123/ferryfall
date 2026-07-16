@@ -252,6 +252,7 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   <h2>Settings</h2>
   <div class="srow"><span class="lbl">Tilt-shift</span><span class="seg" id="segTs"></span></div>
   <div class="srow"><span class="lbl">Shadows</span><span class="seg" id="segSh"></span></div>
+  <div class="srow"><span class="lbl">Sound</span><span class="seg" id="segSnd"></span></div>
   <div class="srow"><span class="lbl">Show exposure</span><span class="seg" id="segEx"></span></div>
   <div class="srow"><span class="lbl">Tutorial</span><span class="seg" id="segTut"></span></div>
   <button class="wide" id="setSave">Save now</button>
@@ -978,6 +979,7 @@ function place(k, x0, z0){
   // nobody's home, the first dock can't be crewed, and the trickle takes a minute
   // to unblock the game — a bad first impression for the core loop.
   if(s.key==='cottage'){ rebuildSmoke(); population = Math.min(capacity + s.res, population + 1); }
+  sndBuild();
   restaff(); refreshHUD(); renderPalette(); renderDocks(); tickTutorial(); checkComms();
   return s;
 }
@@ -1385,6 +1387,7 @@ function stepShip(sh, dt){
       trade = Math.min(4.0, trade + sh.S.cargo/110);
       if(sh.dock.key==='berth') clippersLanded++;
       sh.phase='out'; sh.pts.reverse(); sh.seg=0; sh.frac=0;
+      sndLand();
       refreshHUD(); checkComms();
     }
     return;
@@ -1473,6 +1476,7 @@ function stepWeather(dt){
     let n=0;
     while(adrift.length){ for(const a of adrift){ removeStruct(a, null); n++; } recomputeAnchors();
                           adrift = structures.filter(x=>!x.anchored); }
+    sndLose();
     flash(`<span class="bad">The sea took your ${lost.name}</span>${n?` — and ${n} more went with it`:''}.`, true);
     // Losing a dock isn't an expense, it's a reason to leave. Scale it with how
     // much went: one pontoon shakes people, half your harbour empties it.
@@ -1929,6 +1933,8 @@ function seg(host, vals, get, set){
 function renderSettings(){
   seg('#segTs', ['Off','Subtle','Strong'], ()=>OPTS.ts, v=>OPTS.ts=v);
   seg('#segSh', ['Off','On'], ()=>OPTS.shadows, v=>OPTS.shadows=v);
+  seg('#segSnd',['Off','Quiet','Full'], ()=>audioOn ? (audioVol>0.45?2:1) : 0,
+      v=>{ audioVol = v===2 ? 0.75 : 0.35; setAudio(v>0); });
   seg('#segEx', ['Off','On'], ()=>showExposure, v=>{ showExposure=v; paintSea(); });
   seg('#segTut',['Hide','Show'], ()=>tutOn?1:0, v=>{ tutOn=!!v; renderTut(); });
 }
@@ -1937,6 +1943,91 @@ function toggleSettings(force){
   const show = force!==undefined ? force : !el.classList.contains('show');
   el.classList.toggle('show', show);
   if(show) renderSettings();
+}
+
+// ═════════════════════════════════════════════════════════════════════ audio
+// Synthesised, not sampled — and that's the right call, not a budget one. Wind and
+// surf ARE filtered noise; making them from noise is the correct technique. More
+// importantly the whole weather system is one value ramping 0→1, and procedural
+// audio can ride that value EXACTLY: the wind rises as the sky goes out, locked
+// together. Crossfading samples against a continuous ramp always sounds like
+// crossfading samples. (Gull cries, a ship's bell and music are where real
+// recordings would win — those need a deliberate licence decision.)
+let AC=null, audioOn=true, audioVol=0.7;
+let gWind, gSurf, gRain, gMaster, fWind, fSurf, lfoGain;
+function initAudio(){
+  if(AC) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if(!Ctx) return;
+  AC = new Ctx();
+  // one buffer of pink-ish noise, looped by everything — cheap and seamless
+  const len = AC.sampleRate * 4;
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0=0,b1=0,b2=0;
+  for(let i=0;i<len;i++){
+    const w = Math.random()*2-1;
+    b0 = 0.99765*b0 + w*0.0990460;      // Paul Kellet's pink filter — white noise
+    b1 = 0.96300*b1 + w*0.2965164;      // is too hissy for weather; pink sits in
+    b2 = 0.57000*b2 + w*1.0526913;      // the band where wind and sea actually live
+    d[i] = (b0+b1+b2+w*0.1848) * 0.11;
+  }
+  const src = () => { const s=AC.createBufferSource(); s.buffer=buf; s.loop=true; s.start(); return s; };
+
+  gMaster = AC.createGain(); gMaster.gain.value = audioOn ? audioVol : 0;
+  gMaster.connect(AC.destination);
+
+  // SURF — always there, breathing with the swell. This is the bed.
+  fSurf = AC.createBiquadFilter(); fSurf.type='lowpass'; fSurf.frequency.value=420; fSurf.Q.value=0.7;
+  gSurf = AC.createGain(); gSurf.gain.value=0.12;
+  src().connect(fSurf); fSurf.connect(gSurf); gSurf.connect(gMaster);
+  // slow swell breathing, so it never sits still
+  const lfo = AC.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.09;
+  lfoGain = AC.createGain(); lfoGain.gain.value=0.05;
+  lfo.connect(lfoGain); lfoGain.connect(gSurf.gain); lfo.start();
+
+  // WIND — the storm's voice. Bandpass sweeps up as it builds.
+  fWind = AC.createBiquadFilter(); fWind.type='bandpass'; fWind.frequency.value=520; fWind.Q.value=0.9;
+  gWind = AC.createGain(); gWind.gain.value=0.02;
+  src().connect(fWind); fWind.connect(gWind); gWind.connect(gMaster);
+
+  // RAIN — hiss on top, only when it's actually raining.
+  const fRain = AC.createBiquadFilter(); fRain.type='highpass'; fRain.frequency.value=2600;
+  gRain = AC.createGain(); gRain.gain.value=0;
+  src().connect(fRain); fRain.connect(gRain); gRain.connect(gMaster);
+}
+function updateAudio(){
+  if(!AC || AC.state==='suspended') return;
+  const m = uStorm.value, t = AC.currentTime, k = 0.25;
+  // everything rides uStorm — the sound tells you the weather before you look up
+  gWind.gain.setTargetAtTime(0.012 + m*0.20, t, k);
+  fWind.frequency.setTargetAtTime(380 + m*900, t, k);
+  fWind.Q.setTargetAtTime(0.8 + m*1.6, t, k);
+  gSurf.gain.setTargetAtTime(0.10 + m*0.22, t, k);
+  fSurf.frequency.setTargetAtTime(360 + m*520, t, k);
+  gRain.gain.setTargetAtTime(m>0.15 ? (m-0.15)*0.10 : 0, t, k);
+  lfoGain.gain.setTargetAtTime(0.04 + m*0.10, t, k);
+}
+// A ship tying up is the whole point of the game — give it a sound. Two notes,
+// wooden and soft, so 20 landings an hour never grates.
+function chime(freq, gain, dur){
+  if(!AC || !audioOn) return;
+  const t=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type='sine'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g); g.connect(gMaster); o.start(t); o.stop(t+dur+0.05);
+}
+const sndLand  = () => { chime(523.25, 0.05, 0.5); setTimeout(()=>chime(784, 0.035, 0.7), 90); };
+const sndBuild = () => chime(392, 0.035, 0.22);
+const sndLose  = () => { chime(196, 0.06, 1.1); setTimeout(()=>chime(146.8, 0.05, 1.4), 120); };
+function setAudio(on){
+  audioOn = on;
+  if(on) initAudio();
+  if(gMaster) gMaster.gain.setTargetAtTime(on ? audioVol : 0, AC.currentTime, 0.1);
+  localStorage.setItem('ferryfall.opts', JSON.stringify({...OPTS, ex:showExposure, tut:tutOn, snd:audioOn }));
 }
 
 // ═════════════════════════════════════════════════════════════════════ saves
@@ -1997,12 +2088,16 @@ function renderSlots(){
       del.className='del'; del.textContent='×';
       del.onclick=e=>{ e.stopPropagation(); localStorage.removeItem(slotKey(i)); renderSlots(); };
       b.appendChild(del);
-      b.onclick=()=>{ if(loadGame(i)){ $('#card').classList.add('gone'); running=true; setTool('build'); } };
+      b.onclick=()=>{ if(audioOn){ initAudio(); if(AC && AC.state==='suspended') AC.resume(); }
+                      if(loadGame(i)){ $('#card').classList.add('gone'); running=true; setTool('build'); } };
     } else b.onclick=()=>startNew(i);
     el.appendChild(b);
   }
 }
 function startNew(slot){
+  // Browsers refuse audio without a user gesture, so the title button IS the
+  // unlock — there is no other reliable moment.
+  if(audioOn){ initAudio(); if(AC && AC.state==='suspended') AC.resume(); }
   activeSlot = slot ?? firstFreeSlot();
   init(Math.floor(Math.random()*100000));
   tutStep=0; renderTut();
@@ -2480,6 +2575,7 @@ function frame(){
   updateGulls(now/1000);
   updateSmoke(dt);
   updateCrew(dt);
+  updateAudio();
   if(running){
     simAcc += dt * SPEEDS[speed];
     let guard = 0;
@@ -2534,6 +2630,7 @@ try{
   const o=JSON.parse(localStorage.getItem('ferryfall.opts')||'{}');
   if(o.ts!=null) OPTS.ts=o.ts; if(o.shadows!=null) OPTS.shadows=o.shadows;
   if(o.ex!=null) showExposure=o.ex; if(o.tut!=null) tutOn=!!o.tut;
+  if(o.snd!=null) audioOn=!!o.snd;
 }catch(e){}
 init(5);
 applyOpts(); renderTut(); renderSlots();
@@ -2582,6 +2679,12 @@ window.__dbg={
               for(const n of NEEDS) o[n.key]=+cover[n.key].toFixed(2);
               o._gate=+needGate().toFixed(2); o._worst=worstNeed().key; return o; },
   speed:(i)=>{ if(i!=null) setSpeed(i); return { speed, mult:SPEEDS[speed] }; },
+  audio:()=>({ ctx: AC ? AC.state : 'not created', on:audioOn, vol:audioVol,
+               wind: gWind ? +gWind.gain.value.toFixed(3) : null,
+               surf: gSurf ? +gSurf.gain.value.toFixed(3) : null,
+               rain: gRain ? +gRain.gain.value.toFixed(3) : null,
+               windHz: fWind ? Math.round(fWind.frequency.value) : null }),
+  audioInit:()=>{ initAudio(); if(AC && AC.state==='suspended') AC.resume(); return AC?AC.state:'none'; },
   addPop:(n)=>{ population=Math.min(capacity, population+n); restaff(); onPopChange();
                 refreshHUD(); return population; },
   state:()=>({ coin:Math.round(coin), clock:+clock.toFixed(1), landed, weather:weatherPhase(),
