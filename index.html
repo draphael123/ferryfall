@@ -588,7 +588,44 @@ const bedGeo = new THREE.BufferGeometry();
   bedGeo.setAttribute('color', new THREE.BufferAttribute(col,3));
   bedGeo.setIndex(ind);
 }
-const bedMesh = new THREE.Mesh(bedGeo, new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.95 }));
+// Cloud shadows. THE fix for "the sky is half the frame doing nothing" on a
+// top-down camera: you barely ever see the dome, but you're staring at the water
+// constantly — so put the clouds where the eye already is. Same fbm, same drift
+// as the sky, projected as if the layer sits ~40 m up, so the shadows below and
+// the clouds above are the same weather.
+// Functions only — NO uniform declarations. The sea shader already declares uTime
+// and uStorm for its own swell/whitecaps, and redeclaring them fails to compile.
+const CLOUD_FNS = `
+  varying vec2 vWorldXZ;
+  float cHash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+  float cNoise(vec2 p){
+    vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+    return mix(mix(cHash(i), cHash(i+vec2(1,0)), f.x),
+               mix(cHash(i+vec2(0,1)), cHash(i+vec2(1,1)), f.x), f.y);
+  }
+  float cFbm(vec2 p){ float v=0.0,a=0.5; for(int i=0;i<5;i++){ v+=a*cNoise(p); p*=2.03; a*=0.5; } return v; }
+  float cloudShade(vec2 w){
+    vec2 p = w*0.0075 + vec2(uTime*0.0055, uTime*0.0022);
+    float f = cFbm(p + cFbm(p*0.55)*0.6);
+    float cover = mix(0.46, 0.30, uStorm);
+    float c = smoothstep(cover, cover+mix(0.22,0.09,uStorm), f);
+    return 1.0 - c*mix(0.30, 0.5, uStorm);
+  }`;
+const CLOUD_DECL = 'uniform float uTime;\nuniform float uStorm;\n';
+function addCloudShade(mat){
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uTime = uTime; sh.uniforms.uStorm = uStorm;
+    sh.vertexShader = 'varying vec2 vWorldXZ;\n' + sh.vertexShader.replace(
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\n vWorldXZ = (modelMatrix * vec4(transformed,1.0)).xz;');
+    sh.fragmentShader = CLOUD_DECL + CLOUD_FNS + '\n' + sh.fragmentShader.replace(
+      '#include <color_fragment>',
+      '#include <color_fragment>\n diffuseColor.rgb *= cloudShade(vWorldXZ);');
+  };
+}
+const bedMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.95 });
+addCloudShade(bedMat);
+const bedMesh = new THREE.Mesh(bedGeo, bedMat);
 bedMesh.receiveShadow = true; bedMesh.castShadow = true;
 scene.add(bedMesh);
 
@@ -638,10 +675,11 @@ const seaMat = new THREE.MeshStandardMaterial({ vertexColors:true, transparent:t
   roughness:0.32, metalness:0.0, depthWrite:false, side:THREE.DoubleSide });
 seaMat.onBeforeCompile = sh => {
   sh.uniforms.uTime = uTime; sh.uniforms.uSwell = uSwell; sh.uniforms.uStorm = uStorm;
-  sh.vertexShader = 'uniform float uTime;\nuniform float uSwell;\nattribute float aDepth;\nvarying float vDepth;\nvarying float vWave;\n'
+  sh.vertexShader = 'uniform float uTime;\nuniform float uSwell;\nattribute float aDepth;\nvarying float vDepth;\nvarying float vWave;\nvarying vec2 vWorldXZ;\n'
     + sh.vertexShader.replace('#include <begin_vertex>',
     `#include <begin_vertex>
      vDepth = aDepth;
+     vWorldXZ = (modelMatrix * vec4(transformed,1.0)).xz;
      // hand the raw crest height to the fragment stage — whitecaps break on
      // crests, so the foam has to know where the crests actually are
      vWave = sin(transformed.x*0.28 + uTime*1.5) * 0.6
@@ -674,7 +712,10 @@ seaMat.onBeforeCompile = sh => {
   // Surf. Bands run along the depth contours and crawl shoreward, which means
   // they trace a bright animated line around EXACTLY the water you can found on.
   // The prettiest thing here is also the clearest bit of teaching in the game.
+  // CLOUD_FNS carries no uniform declarations, so it can ride alongside the ones
+  // this shader already has.
   sh.fragmentShader = 'uniform float uTime;\nuniform float uSwell;\nuniform float uStorm;\nvarying float vDepth;\nvarying float vWave;\n'
+    + CLOUD_FNS + '\n'
     + sh.fragmentShader.replace('#include <color_fragment>',
     `#include <color_fragment>
      // Surf rings the shoal RIM, not its crest. Over the crest the water is only
@@ -698,6 +739,8 @@ seaMat.onBeforeCompile = sh => {
      // and the water itself goes cold and dark when it turns
      vec3 grim = mix(diffuseColor.rgb, vec3(0.09,0.13,0.18), 0.55);
      diffuseColor.rgb = mix(diffuseColor.rgb, grim, uStorm*0.75);
+     // shade BEFORE the foam, so whitecaps still read bright under a cloud
+     diffuseColor.rgb *= cloudShade(vWorldXZ);
      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95,0.99,1.0), clamp(foam,0.0,0.95));`);
 };
 const seaMesh = new THREE.Mesh(seaGeo, seaMat); seaMesh.renderOrder = 2; scene.add(seaMesh);
@@ -968,10 +1011,28 @@ function addDetail(s, g, cw, ch){
     }
   }
 }
-function posStruct(s){ s.mesh.position.set(wx(s.x0)+(s.w-1)*CS/2, WL, wz(s.z0)+(s.h-1)*CS/2); }
+// A half-wrecked dock should LOOK half-wrecked. Damage used to be a colour tint
+// and a bar in a panel — invisible in the one place you're actually looking. A
+// hurt structure lists, settles into the water, and slews off true; a breakwater
+// (hardy) never does, which quietly reinforces why it's worth the money.
+function posStruct(s){
+  const hurt = s.hardy ? 0 : (1 - (s.integrity ?? 1));
+  const list = hurt*hurt;                     // stays honest until it's really going
+  s.mesh.position.set(wx(s.x0)+(s.w-1)*CS/2, WL - list*0.30, wz(s.z0)+(s.h-1)*CS/2);
+  // Pick a side, but always commit to it. A plain (r-0.5)*2 lands near zero half
+  // the time, so half your wrecks barely tilt and the tell is worthless.
+  if(s.lean === undefined){
+    const r = mulberry32(s.uid*31+7)();
+    s.lean = (r < 0.5 ? -1 : 1) * (0.65 + Math.abs(r-0.5)*0.7);
+  }
+  s.mesh.rotation.z = list * 0.30 * s.lean;
+  s.mesh.rotation.x = list * 0.18 * -s.lean;
+  s.mesh.rotation.y = list * 0.12 * s.lean;
+}
 
 let residents=0, staffNeed=0;
 function restaff(){
+  const prevRes = residents;
   residents = structures.reduce((a,s)=>a+s.res,0);
   let pool=residents; staffNeed=0;
   for(const s of structures){
@@ -981,6 +1042,9 @@ function restaff(){
     if(s.open) pool -= s.staff;
     if(s.bodyMesh) s.bodyMesh.material = matFor(s, !s.open ? '_shut' : (s.integrity<0.55 ? '_hurt' : ''));
   }
+  // crew count follows the housing — rebuild only when it actually moves, since
+  // restaff() runs on every placement and every season change
+  if(residents !== prevRes) rebuildCrew();
 }
 
 // ══════════════════════════════════════════════════════════════════════ ships
@@ -1181,6 +1245,8 @@ function stepWeather(dt){
     // A fully exposed structure in an autumn blow loses ~0.028/s → a 22 s storm
     // takes ~60% of it. Two unsheltered storms and it's gone.
     s.integrity -= S * e * 0.028 * dt;
+    posStruct(s);                    // list further as it goes — visible, live
+    if(s.bodyMesh) s.bodyMesh.material = matFor(s, !s.open ? '_shut' : (s.integrity<0.55 ? '_hurt' : ''));
     if(s.integrity <= 0){ lost = s; break; }
   }
   if(lost){
@@ -1201,7 +1267,7 @@ function repairAll(){
   if(cost<=0){ flash('Nothing needs mending.'); return; }
   if(cost>coin){ flash(`Mending everything costs <b>${cost}</b> — you have ${Math.round(coin)}`, true); return; }
   coin -= cost;
-  for(const s of structures) s.integrity = 1;
+  for(const s of structures){ s.integrity = 1; posStruct(s); }   // sit back up
   restaff(); refreshHUD();
   flash(`Everything mended — <b>${cost}</b> coin.`);
 }
@@ -1686,6 +1752,55 @@ function updateSmoke(dt){
   smoke.material.opacity = 0.40 * (1 - uStorm.value*0.45);
 }
 
+// ── crew ────────────────────────────────────────────────────────────────────
+// People walking the boards. This is what turns a raft into a TOWN — the harbour
+// had cargo and cranes and lanterns and not one person to use any of it. They
+// walk cell-to-cell over your own structures, so the town's shape is their world:
+// build a longer pier and they walk further down it.
+const crewGeo = new THREE.CapsuleGeometry(0.10, 0.26, 3, 6);
+const crewMat = new THREE.MeshStandardMaterial({ color:0x3b4a63, roughness:0.9 });
+let crew=null, crewState=[];
+const CREW_MAX = 26;
+function rebuildCrew(){
+  if(crew){ scene.remove(crew); crew=null; }
+  crewState = [];
+  const n = Math.min(CREW_MAX, residents);
+  if(!n || !structures.length) return;
+  crew = new THREE.InstancedMesh(crewGeo, crewMat, n);
+  crew.frustumCulled = false; crew.castShadow = true;
+  scene.add(crew);
+  const r = mulberry32(seed*23+9);
+  for(let i=0;i<n;i++){
+    const c = randCell(r);
+    crewState.push({ x:c.x, z:c.z, tx:c.x, tz:c.z, t:1, sp:0.5+r()*0.5, bob:r()*6.28 });
+  }
+}
+function randCell(r){
+  const s = structures[Math.floor((r?r():Math.random())*structures.length)];
+  if(!s) return {x:0, z:0};
+  const cs = cellsOf(s), c = cs[Math.floor((r?r():Math.random())*cs.length)];
+  return { x:wx(c.ix), z:wz(c.iz) };
+}
+function updateCrew(dt){
+  if(!crew) return;
+  crewState.forEach((p,i)=>{
+    p.t += dt*p.sp*0.5;
+    if(p.t >= 1){                       // arrived — pick somewhere else to be
+      p.x = p.tx; p.z = p.tz;
+      const c = randCell(null);
+      p.tx = c.x + (Math.random()-0.5)*0.7; p.tz = c.z + (Math.random()-0.5)*0.7;
+      p.t = 0;
+    }
+    const x = lerp(p.x, p.tx, p.t), z = lerp(p.z, p.tz, p.t);
+    const bob = Math.abs(Math.sin(p.t*22 + p.bob))*0.045;   // a walking bounce
+    _v3.set(x, WL + 0.42 + bob, z);
+    _q.setFromEuler(new THREE.Euler(0, Math.atan2(p.tx-p.x, p.tz-p.z), 0));
+    _m4.compose(_v3, _q, _s3.set(1,1,1));
+    crew.setMatrixAt(i, _m4);
+  });
+  crew.instanceMatrix.needsUpdate = true;
+}
+
 // ── rain ────────────────────────────────────────────────────────────────────
 // The sea reacted to storms and the air did nothing. Line segments in a box that
 // rides the camera, sheared along the season's wind so the weather has a
@@ -1895,6 +2010,7 @@ function frame(){
   updateRain(dt);
   updateGulls(now/1000);
   updateSmoke(dt);
+  updateCrew(dt);
   if(running){
     step(dt);
     hudT += dt;
