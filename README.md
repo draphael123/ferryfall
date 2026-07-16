@@ -132,6 +132,22 @@ headless twin: `dock(id)`, `openCreek(id)`, `line([ids])`, `dredgeLine(...)`,
 while the *real* Dock tool showed no rings at all — `setTool()` never called
 `refreshGhosts()`. Always drive the real DOM buttons too.
 
+**`tick()` is the TUTORIAL tick. `sim(secs)` steps the world.** A whole session's
+regressions were written as `for(...) tick(1/30)` and advanced *nothing*, so
+"storms bite" and "needs gate growth" passed vacuously for hours. Related: storm
+damage is **`s.integrity`** — there is no `s.dmg`, and asserting on it reads as a
+serene, permanent zero. **If a mechanic reports exactly nothing, suspect the probe
+before the mechanic.**
+
+**A debug hook must never SET on a read.** `season()` with no argument did
+`seasonI = ((undefined % 4) + 4) % 4` → `NaN`, which silently wrecked the season
+tint *and* the music's root note. It now reports unless handed a finite index.
+
+**Before believing a green test, look at the thing.** The coverage info view
+passed numerically (2,430 cells repainted, a 253-cell disc where π·9²=254) while
+being *completely invisible* on screen — shallow water is only ~40% opaque, so the
+tint dissolved into the sand. The screenshot was the only test that failed.
+
 Screenshots need the [[screenshot-pipeline]] memory (`computer` screenshot wedges
 on this canvas) — capture hook → local upload server on a session-unique port →
 `Read` the jpg.
