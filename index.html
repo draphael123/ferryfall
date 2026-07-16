@@ -16,30 +16,35 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
 </script>
 <style>
   :root{
-    --gold:#ffc978; --blue:#6f9fd8; --bad:#e8927c;
-    --panel:rgba(14,22,28,.82); --line:rgba(255,201,120,.22); --text:#e8ddc9;
+    --gold:#ffc978; --blue:#6f9fd8; --bad:#e8927c; --warn:#f0c886;
+    --panel:rgba(10,20,28,.82); --line:rgba(255,201,120,.22); --text:#e8ddc9;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;overflow:hidden;background:#0a1014;
+  html,body{margin:0;height:100%;overflow:hidden;background:#08121a;
     font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;color:var(--text)}
   canvas{display:block}
   .hud{position:fixed;pointer-events:none;z-index:5}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
     backdrop-filter:blur(9px);box-shadow:0 8px 30px rgba(0,0,0,.5)}
 
-  #ledger{top:14px;left:14px;padding:11px 14px;min-width:214px}
+  #ledger{top:14px;left:14px;padding:11px 14px;min-width:224px}
   #ledger .row{display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:3px 0}
   #ledger .k{opacity:.62}
   #ledger .v{font-variant-numeric:tabular-nums}
   #coin{color:var(--gold);font-weight:600}
   .sep{height:1px;background:var(--line);margin:7px 0}
-  #contentBar{height:5px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:6px}
-  #contentFill{height:100%;width:0%;background:linear-gradient(90deg,var(--blue),var(--gold));transition:width .4s}
+  #weather.storm{color:var(--bad);font-weight:600}
+  #weather.rising{color:var(--warn)}
+  #repairBtn{width:100%;margin-top:8px;background:transparent;border:1px solid rgba(255,255,255,.16);
+    color:var(--text);border-radius:6px;padding:6px;font:inherit;font-size:11.5px;cursor:pointer;
+    pointer-events:auto;display:none}
+  #repairBtn.show{display:block}
+  #repairBtn:hover{border-color:var(--gold);color:var(--gold)}
 
   #tools{bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:7px;padding:7px;pointer-events:auto}
   .tool{background:transparent;border:1px solid rgba(255,255,255,.11);color:var(--text);
-    border-radius:7px;padding:8px 15px;font:inherit;font-size:13px;cursor:pointer;
-    display:flex;flex-direction:column;align-items:center;gap:2px;min-width:80px}
+    border-radius:7px;padding:8px 14px;font:inherit;font-size:13px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:2px;min-width:78px}
   .tool:hover{background:rgba(255,201,120,.09)}
   .tool.on{background:rgba(255,201,120,.17);border-color:var(--gold);color:#fff}
   .tool small{opacity:.45;font-size:10px;letter-spacing:.09em}
@@ -47,53 +52,35 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   #palette{bottom:92px;left:50%;transform:translateX(-50%);display:none;gap:6px;padding:6px;pointer-events:auto}
   #palette.show{display:flex}
   .chip{background:transparent;border:1px solid rgba(255,255,255,.12);color:var(--text);
-    border-radius:6px;padding:6px 11px;font:inherit;font-size:12px;cursor:pointer;text-align:left;min-width:112px}
+    border-radius:6px;padding:6px 10px;font:inherit;font-size:12px;cursor:pointer;text-align:left;min-width:104px}
   .chip:hover{background:rgba(255,201,120,.09)}
   .chip.on{background:rgba(255,201,120,.17);border-color:var(--gold)}
   .chip b{display:block;font-weight:600;font-size:12.5px}
-  .chip span{opacity:.5;font-size:10.5px;font-variant-numeric:tabular-nums}
+  .chip span{opacity:.5;font-size:10px;font-variant-numeric:tabular-nums}
   .chip.poor{opacity:.4}
 
-  #lines{top:14px;right:14px;padding:10px 12px;width:222px;pointer-events:auto;max-height:60vh;overflow:auto}
-  #lines h3{margin:0 0 7px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.5;font-weight:500}
-  .lineRow{display:flex;align-items:center;gap:7px;padding:5px;border-radius:6px;font-size:13px}
-  .swatch{width:9px;height:9px;border-radius:50%;flex:none}
-  .lineRow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .lineRow.broken .nm{color:var(--bad)}
-  .lineRow .st{font-size:10px;opacity:.5}
-  .addBoat{background:transparent;border:1px solid rgba(255,255,255,.14);color:var(--text);
-    border-radius:5px;font:inherit;font-size:10px;padding:2px 5px;cursor:pointer}
-  .addBoat:disabled{opacity:.28;cursor:default}
-  #noLines{font-size:12px;opacity:.4;font-style:italic;padding:3px}
+  #ships{top:14px;right:14px;padding:10px 12px;width:214px;pointer-events:auto;max-height:56vh;overflow:auto}
+  #ships h3{margin:0 0 7px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.5;font-weight:500}
+  .dockRow{display:flex;align-items:center;gap:7px;padding:5px;border-radius:6px;font-size:12.5px}
+  .dockRow .sw{width:8px;height:8px;border-radius:50%;flex:none}
+  .dockRow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dockRow .st{font-size:10px;opacity:.5;font-variant-numeric:tabular-nums}
+  .dockRow.shut .nm{color:var(--bad)}
+  #noDocks{font-size:12px;opacity:.4;font-style:italic;padding:3px}
+  .bar{height:3px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:3px}
+  .bar i{display:block;height:100%;background:var(--gold)}
 
   #hint{bottom:166px;left:50%;transform:translateX(-50%);font-size:13px;padding:7px 15px;
-    border-radius:20px;background:rgba(10,16,20,.86);border:1px solid var(--line);
+    border-radius:20px;background:rgba(8,18,26,.88);border:1px solid var(--line);
     opacity:0;transition:opacity .2s;white-space:nowrap;max-width:76vw}
   #hint.show{opacity:1}
   #hint b{color:var(--gold)}
   #hint .bad{color:var(--bad)}
 
-  #card{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
-    background:radial-gradient(ellipse at 50% 45%,rgba(10,18,22,.72),rgba(6,10,13,.96));
-    backdrop-filter:blur(3px);transition:opacity .5s}
-  #card.gone{opacity:0;pointer-events:none}
-  #cardIn{max-width:516px;padding:32px 38px;text-align:center}
-  #cardIn h1{margin:0 0 4px;font-size:40px;letter-spacing:.26em;color:var(--gold);font-weight:400;text-indent:.26em}
-  #cardIn .sub{font-size:12.5px;letter-spacing:.15em;text-transform:uppercase;opacity:.42;margin-bottom:20px}
-  #cardIn p{font-size:14.5px;line-height:1.66;opacity:.86;margin:0 0 12px;text-align:left}
-  #cardIn em{color:#e0a860;font-style:normal}
-  #go{margin-top:14px;background:transparent;border:1px solid var(--gold);color:var(--gold);
-    border-radius:7px;padding:10px 30px;font:inherit;font-size:14px;letter-spacing:.13em;cursor:pointer}
-  #go:hover{background:rgba(255,201,120,.15)}
-  #legend{display:flex;gap:14px;justify-content:center;margin:16px 0 2px;font-size:11px;opacity:.6}
-  #legend span{display:flex;align-items:center;gap:5px}
-  #legend i{width:15px;height:8px;border-radius:2px}
-
-  /* ── tutorial ── */
-  #tut{top:228px;left:14px;width:246px;padding:11px 13px;pointer-events:auto}
+  #tut{top:250px;left:14px;width:250px;padding:11px 13px;pointer-events:auto}
   #tut.hide{display:none}
-  #tut h4{margin:0 0 6px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;opacity:.45;font-weight:500;
-    display:flex;justify-content:space-between;align-items:center}
+  #tut h4{margin:0 0 6px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;opacity:.45;
+    font-weight:500;display:flex;justify-content:space-between;align-items:center}
   #tut .body{font-size:13px;line-height:1.5;opacity:.92}
   #tut .body b{color:var(--gold)}
   #tutSkip{background:transparent;border:0;color:var(--text);opacity:.35;font:inherit;font-size:10px;
@@ -104,9 +91,8 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   #tutDots i.on{background:var(--gold)}
   #tutDots i.done{background:rgba(255,201,120,.4)}
 
-  /* ── settings ── */
   #settings{position:fixed;inset:0;z-index:25;display:none;align-items:center;justify-content:center;
-    background:rgba(6,10,13,.72);backdrop-filter:blur(4px)}
+    background:rgba(4,10,16,.72);backdrop-filter:blur(4px)}
   #settings.show{display:flex}
   #setIn{width:352px;padding:22px 24px}
   #setIn h2{margin:0 0 16px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;opacity:.5;font-weight:500}
@@ -121,7 +107,21 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   #setIn .wide:hover{border-color:var(--gold);color:var(--gold)}
   #setIn .danger:hover{border-color:var(--bad);color:var(--bad)}
 
-  /* ── save slots ── */
+  #card{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at 50% 45%,rgba(8,20,32,.7),rgba(4,8,14,.96));
+    backdrop-filter:blur(3px);transition:opacity .5s}
+  #card.gone{opacity:0;pointer-events:none}
+  #cardIn{max-width:524px;padding:30px 38px;text-align:center}
+  #cardIn h1{margin:0 0 4px;font-size:40px;letter-spacing:.26em;color:var(--gold);font-weight:400;text-indent:.26em}
+  #cardIn .sub{font-size:12.5px;letter-spacing:.15em;text-transform:uppercase;opacity:.42;margin-bottom:20px}
+  #cardIn p{font-size:14.5px;line-height:1.66;opacity:.86;margin:0 0 12px;text-align:left}
+  #cardIn em{color:#e0a860;font-style:normal}
+  #go{margin-top:14px;background:transparent;border:1px solid var(--gold);color:var(--gold);
+    border-radius:7px;padding:10px 30px;font:inherit;font-size:14px;letter-spacing:.13em;cursor:pointer}
+  #go:hover{background:rgba(255,201,120,.15)}
+  #legend{display:flex;gap:13px;justify-content:center;margin:16px 0 2px;font-size:11px;opacity:.6}
+  #legend span{display:flex;align-items:center;gap:5px}
+  #legend i{width:15px;height:8px;border-radius:2px}
   #slots{display:flex;flex-direction:column;gap:6px;margin:6px 0 4px}
   .slot{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;
     border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--text);
@@ -139,22 +139,22 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
 
 <div class="hud panel" id="ledger">
   <div class="row"><span class="k">Coin</span><span class="v" id="coin">0</span></div>
-  <div class="row"><span class="k">Season</span><span class="v" id="season">Autumn</span></div>
+  <div class="row"><span class="k">Season</span><span class="v" id="season">Summer</span></div>
+  <div class="row"><span class="k">Weather</span><span class="v" id="weather">Fair</span></div>
   <div class="sep"></div>
-  <div class="row"><span class="k">Fare / visitor</span><span class="v" id="fare">0</span></div>
-  <div class="row"><span class="k">Staff</span><span class="v" id="staff">0 / 0</span></div>
-  <div class="row"><span class="k">Fairway</span><span class="v" id="fair">—</span></div>
-  <div class="row"><span class="k">Contentment</span><span class="v" id="contentPct">—</span></div>
-  <div id="contentBar"><div id="contentFill"></div></div>
+  <div class="row"><span class="k">Ships landed</span><span class="v" id="landed">0</span></div>
+  <div class="row"><span class="k">Crew</span><span class="v" id="staff">0 / 0</span></div>
+  <div class="row"><span class="k">Worst exposure</span><span class="v" id="worst">—</span></div>
+  <button id="repairBtn">Repair everything</button>
 </div>
 
-<div class="hud panel" id="lines">
-  <h3>Ferry lines</h3>
-  <div id="lineList"><div id="noLines">No lines yet.</div></div>
+<div class="hud panel" id="ships">
+  <h3>Your docks</h3>
+  <div id="dockList"><div id="noDocks">No docks yet.</div></div>
 </div>
 
 <div class="hud panel" id="tut">
-  <h4><span>Getting afloat</span><button id="tutSkip">skip</button></h4>
+  <h4><span>Making harbour</span><button id="tutSkip">skip</button></h4>
   <div class="body" id="tutBody"></div>
   <div id="tutDots"></div>
 </div>
@@ -162,44 +162,42 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
 <div class="hud" id="hint"></div>
 <div class="hud panel" id="palette"></div>
 
+<div class="hud panel" id="tools">
+  <button class="tool on" data-tool="build">Build<small>1</small></button>
+  <button class="tool" data-tool="demolish">Break up<small>2</small></button>
+  <button class="tool" data-tool="look">Look<small>3</small></button>
+</div>
+
 <div id="settings"><div class="panel" id="setIn">
   <h2>Settings</h2>
   <div class="srow"><span class="lbl">Tilt-shift</span><span class="seg" id="segTs"></span></div>
   <div class="srow"><span class="lbl">Shadows</span><span class="seg" id="segSh"></span></div>
-  <div class="srow"><span class="lbl">Trees</span><span class="seg" id="segTr"></span></div>
+  <div class="srow"><span class="lbl">Show exposure</span><span class="seg" id="segEx"></span></div>
   <div class="srow"><span class="lbl">Tutorial</span><span class="seg" id="segTut"></span></div>
   <button class="wide" id="setSave">Save now</button>
-  <button class="wide" id="setNewRiver">New river (keeps nothing)</button>
+  <button class="wide" id="setNewSea">New sea (keeps nothing)</button>
   <button class="wide danger" id="setQuit">Save &amp; return to title</button>
-  <button class="wide" id="setClose">Back to the river</button>
+  <button class="wide" id="setClose">Back to the water</button>
 </div></div>
-
-<div class="hud panel" id="tools">
-  <button class="tool on" data-tool="build">Build<small>1</small></button>
-  <button class="tool" data-tool="dredge">Dredge<small>2</small></button>
-  <button class="tool" data-tool="line">Line<small>3</small></button>
-  <button class="tool" data-tool="demolish">Break up<small>4</small></button>
-  <button class="tool" data-tool="look">Look<small>5</small></button>
-</div>
 
 <div id="card"><div id="cardIn">
   <h1>FERRYFALL</h1>
-  <div class="sub">a town that floats</div>
-  <p>Your town has no ground. In the <em>pale shallows</em> a thing can stand on
-     the bed and needs nothing. Found there, and grow outward plank by plank.</p>
-  <p>But a heavy thing can't touch bottom — a tea house, a bath house, your wharf
-     only float in the <em>channel</em>, and out there they must hold onto the
-     town behind them. The channel is also the only <em>road</em> your ferries
-     have.</p>
-  <p><em>Where boats can't go, you can stand. Where you can stand, boats can't
-     go.</em> Everything worth building is in their way.</p>
+  <div class="sub">a harbour with no coast</div>
+  <p>Open ocean in every direction. The only place you can stand is a
+     <em>shoal</em> — a pale shallow where a pile still reaches the bottom. Found
+     there, and grow outward plank by plank.</p>
+  <p>Ships come from the horizon, and the big ones need <em>deep water</em>. So
+     the money is always further out than the safety: the shoal that holds your
+     town is also the only thing breaking the sea.</p>
+  <p><em>Shelter and money point opposite ways.</em> Reach as far as you dare —
+     or build a <em>breakwater</em> and make your own lee.</p>
   <div id="legend">
-    <span><i style="background:#e4d5ac"></i>shallows — you can stand</span>
-    <span><i style="background:#4e9a97"></i>channel — the road</span>
-    <span><i style="background:#1e5560"></i>deep — heavy things float</span>
+    <span><i style="background:#e8dcb4"></i>shoal — you can stand</span>
+    <span><i style="background:#5fc4b8"></i>shallows</span>
+    <span><i style="background:#123a5a"></i>deep — big ships</span>
   </div>
   <div id="slots"></div>
-  <button id="go">New voyage</button>
+  <button id="go">Put to sea</button>
 </div></div>
 
 <script type="module">
@@ -211,58 +209,65 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 // ═════════════════════════════════════════════════════════════════ constants
-const N=120, CS=1.4, SPAN=N*CS;
-const DRAFT = 1.0;          // what a FERRY draws — the road's minimum depth
-// How deep you can still drive a pile / touch the bed. Deliberately EQUAL to
-// DRAFT, and that equality is the whole game in one line:
-//   where boats can't go, you can stand. Where you can stand, boats can't go.
-// Anything drawing over 1.0 m only exists in water over 1.0 m, so it can never
-// touch bottom and can NEVER stand alone — it must hold onto the chain back to
-// the shallows. No bank, no mooring posts: the river itself is the constraint.
-const ANCHOR_MAX = 1.0;
-const BASE_WL = 0.0;
+const N=128, CS=1.8, SPAN=N*CS;
+const WL = 0;                 // sea level
+const ANCHOR_MAX = 1.0;       // how deep you can still drive a pile / touch bottom
+// A mole is a rubble mound, so it founds far deeper than a pile can — and it MUST
+// reach past 7 m or a Deep Berth could never be sheltered by anything, in any
+// season, which makes the best dock in the game a pure trap instead of a choice.
+// It's also why moles are the real decision: they're the only thing that can
+// change the weather map, they cost a fortune, and they're obstacles your own
+// ships must sail around.
+const BREAKWATER_MAX = 8.5;
+const SHELTER_DEPTH = 1.6;    // water this shallow trips the swell → it shelters
+const MAX_FETCH = 34;         // cells of open water = fully exposed
+const START_COIN = 900;
 
-const COST_BOAT = 220, COST_DREDGE = 3.1;
-const BASE_FARE = 6, START_COIN = 760;
-const DREDGE_R = 2.4, DREDGE_DEPTH = 0.42;
-const BOAT_SPD = 5.0, DOCK_DWELL = 1.1, BOAT_CAP = 4;
-// v0.1's 19 s was tuned for a game where trip length was the ONLY variable. Here
-// the whole point is that congestion lengthens trips — and a longer trip costs
-// NOTHING unless the boats are the bottleneck. At 19 s one boat ran a village at
-// 0.94 contentment with zero queue, so a +32% detour changed literally nothing
-// and the core mechanic had no teeth. Demand must sit near a boat's capacity for
-// trip time to convert into throughput, coin and contentment.
-const SPAWN_EVERY = 5, PATIENCE = 90;
-
-// Draft is the whole design. Cheap things float in the safe shallows; the things
-// that make you rich can only float mid-channel, in the fairway.
+// Docks are classed by the water they sit in. This IS the game's ladder: deeper
+// water = bigger ship = more money = further from the shoal that shelters you.
 const TYPES = {
-  walkway:  { key:'walkway',  name:'Walkway',      w:1,h:1, draft:0.25, cost:25,  res:0, staff:0, value:0,
-              color:0x8a6f4a, tall:0.22, roof:false, hint:'reaches out across the shelf' },
-  cottage:  { key:'cottage',  name:'Raft Cottage', w:2,h:2, draft:0.50, cost:140, res:4, staff:0, value:0,
-              color:0xa8654a, tall:1.5,  roof:true,  hint:'+4 residents to staff your services' },
-  wharf:    { key:'wharf',    name:'Wharf',        w:3,h:2, draft:1.30, cost:200, res:0, staff:0, value:0,
-              color:0x6d5a42, tall:0.5,  roof:false, hint:'ferries depart here — build one first' },
-  teahouse: { key:'teahouse', name:'Tea House',    w:2,h:2, draft:1.10, cost:260, res:0, staff:2, value:6,
-              color:0xd08f3c, tall:1.9,  roof:true,  hint:'+6 fare · needs 2 staff' },
-  bathhouse:{ key:'bathhouse',name:'Bath House',   w:3,h:3, draft:1.90, cost:480, res:0, staff:3, value:14,
-              color:0x6f9ab8, tall:2.1,  roof:true,  hint:'+14 fare · needs 3 staff · deep water only' },
+  pontoon:  { key:'pontoon',  name:'Pontoon',      w:1,h:1, need:0.25, cost:30,  res:0, staff:0,
+              color:0x8a6f4a, tall:0.22, roof:false, blocks:false, hardy:false,
+              hint:'walk it out from the shoal' },
+  cottage:  { key:'cottage',  name:'Raft Cottage', w:2,h:2, need:0.50, cost:150, res:4, staff:0,
+              color:0xa8654a, tall:1.5,  roof:true,  blocks:false, hardy:false,
+              hint:'+4 crew · safe on the shoal' },
+  breakwater:{key:'breakwater',name:'Breakwater',  w:3,h:1, need:0.0,  cost:240, res:0, staff:0,
+              color:0x77716a, tall:0.75, roof:false, blocks:true,  hardy:true,
+              maxDepth:BREAKWATER_MAX,
+              hint:'founds on the bed to 4 m · blocks the swell · storm-proof' },
+  jetty:    { key:'jetty',    name:'Jetty',        w:2,h:2, need:2.5,  cost:180, res:0, staff:1,
+              color:0xc9a05a, tall:0.6,  roof:false, blocks:false, hardy:false,
+              ship:'coaster', hint:'coasters · 1 crew' },
+  trader:   { key:'trader',   name:'Trader Dock',  w:3,h:2, need:4.5,  cost:380, res:0, staff:2,
+              color:0xd08f3c, tall:0.8,  roof:false, blocks:false, hardy:false,
+              ship:'trader', hint:'traders · 2 crew · out in the blue' },
+  berth:    { key:'berth',    name:'Deep Berth',   w:3,h:3, need:7.0,  cost:720, res:0, staff:3,
+              color:0x6f9ab8, tall:1.0,  roof:false, blocks:false, hardy:false,
+              ship:'clipper', hint:'clippers · 3 crew · far out, wide open' },
 };
-const BUILD_ORDER = ['walkway','cottage','wharf','teahouse','bathhouse'];
+const BUILD_ORDER = ['pontoon','cottage','breakwater','jetty','trader','berth'];
 
+const SHIPS = {
+  coaster: { name:'Coaster', draft:2.0, cargo:16,  every:34, len:2.6, col:0x9a8b6e },
+  trader:  { name:'Trader',  draft:4.0, cargo:46,  every:46, len:4.0, col:0x8d7a5c },
+  clipper: { name:'Clipper', draft:6.5, cargo:112, every:60, len:5.4, col:0x9c8a66 },
+};
+
+// Wind turns with the year. This season's lee is next season's weather side —
+// so no position is permanently safe, and that's the whole point of breakwaters.
 const SEASONS = [
-  { name:'Autumn', wl:BASE_WL,      freeze:0,    tint:0xffcf92 },
-  { name:'Winter', wl:BASE_WL-0.25, freeze:0.40, tint:0xbcd4ee },
-  { name:'Spring', wl:BASE_WL+0.55, freeze:0,    tint:0xd8ecc8 },
-  { name:'Summer', wl:BASE_WL-0.65, freeze:0,    tint:0xffe0a0 },
+  { name:'Summer', dir:[0,-1],  strength:0.45, tint:0xffe0a0, fog:0x9dc0cf },
+  { name:'Autumn', dir:[-1,-0.3],strength:1.0, tint:0xffcf92, fog:0x8fa5ad },
+  { name:'Winter', dir:[0.2,1], strength:1.35, tint:0xbcd4ee, fog:0x8093a3 },
+  { name:'Spring', dir:[0.9,0.5],strength:0.7, tint:0xd8ecc8, fog:0x9fbcc0 },
 ];
-const LINE_COLORS = [0xffc978, 0x8fd2c4, 0xe89ac0, 0x9db6ec];
-const VILLAGE_NAMES = ['Merrin\'s Landing','Ashgate','Wren Mill'];
+const STORM_EVERY = 95, STORM_LEN = 22;   // seconds
 
 // ═══════════════════════════════════════════════════════════════════════ rng
 function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
   t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
-let rnd = mulberry32(3);
+let rnd = mulberry32(5);
 const lerp=(a,b,t)=>a+(b-a)*t, clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const smooth=t=>t*t*(3-2*t);
 const smoothstep=(e0,e1,x)=>smooth(clamp((x-e0)/(e1-e0),0,1));
@@ -276,139 +281,138 @@ function makeNoise(seed){
 }
 
 // ═════════════════════════════════════════════════════════════════════ world
-let H=new Float32Array(N*N);
-let H0=new Float32Array(N*N);          // pristine generated bed — saves diff dredging against this
-let occ=new Int32Array(N*N).fill(-1);   // structure index per cell, -1 = open water
-let frozen=new Uint8Array(N*N);
-let villages=[], structures=[], seed=3;
-let uidNext=1;                          // stable ids: occ indices shift when you demolish
+let H=new Float32Array(N*N), H0=new Float32Array(N*N);
+let occ=new Int32Array(N*N).fill(-1);
+let structures=[], banks=[], seed=5, uidNext=1;
 
 const idx=(ix,iz)=>iz*N+ix;
 const inGrid=(ix,iz)=>ix>=0&&iz>=0&&ix<N&&iz<N;
 const wx=ix=>(ix-N/2)*CS, wz=iz=>(iz-N/2)*CS;
 const gx=x=>Math.round(x/CS+N/2), gz=z=>Math.round(z/CS+N/2);
+const depthAt = i => WL - H[i];
 
-// A broad, lazy river. Two sines so it meanders without ever doubling back.
-const centreX = iz => N/2 + 13*Math.sin(iz*0.048) + 6*Math.sin(iz*0.115+1.7);
-
-// The cross-section IS the game: deep core mid-channel (buildable + the road),
-// shallow shelf at the banks (safe, cheap, worthless), then dry land.
-function buildValley(s){
+// Open ocean. A deep plain, a handful of shoals (the only standable ground), a
+// couple of islands riding on them, and it deepens toward the edges so ships
+// have somewhere to come from.
+function buildSea(s){
   seed=s; rnd=mulberry32(s);
-  const nz=makeNoise(s*3+1), nz2=makeNoise(s*3+2);
+  const nz=makeNoise(s*7+1), nz2=makeNoise(s*7+2);
   H=new Float32Array(N*N); occ=new Int32Array(N*N).fill(-1);
-  for(let iz=0;iz<N;iz++){
-    const cx=centreX(iz);
-    const shoal = 1 - smoothstep(0, N*0.5, iz);   // headwaters run shallower
-    for(let ix=0;ix<N;ix++){
-      const d=Math.abs(ix-cx);
-      const core = -3.6 + shoal*1.4;
-      let h;
-      // The shelf plateaus ENTIRELY above ferry draft (0.35–0.85 m vs DRAFT 1.0).
-      // That's deliberate and it's the whole design: the shallows are safe,
-      // cheap and worthless — boats can't go there, so nothing you build there
-      // costs you anything. The deep core is the ONLY road AND the only place a
-      // money-maker floats. Ramp the shelf smoothly up to the core instead and
-      // the navigable river becomes ~28 cells wide, a bathhouse dents 3 of them,
-      // and the squeeze never bites.
-      if(d < 6)        h = core;
-      else if(d < 9.5) h = lerp(core, -0.85, smoothstep(6, 9.5, d));   // steep drop-off
-      else             h = lerp(-0.85, -0.35, smoothstep(9.5, 17, d)); // shelf plateau
-      h = lerp(h, 0.8, smoothstep(17, 20.5, d));                       // waterline / bank
-      h += smoothstep(20, 42, d) * 8.5;                                // valley walls
-      // Noise on LAND only — a ±0.16 wobble on the shelf would punch random
-      // navigable pockets through it and quietly undo the rule above.
-      h += nz(ix*0.09, iz*0.09) * 0.9 * smoothstep(18, 30, d);
-      h += nz2(ix*0.3, iz*0.3) * 0.2 * (1-smoothstep(0, 5, d));
-      H[idx(ix,iz)] = h;
-    }
+  banks=[];
+
+  for(let iz=0;iz<N;iz++) for(let ix=0;ix<N;ix++){
+    const dx=(ix-N/2)/(N/2), dz=(iz-N/2)/(N/2);
+    const r=Math.hypot(dx,dz);
+    let h = -8.2 + nz(ix*0.045, iz*0.045)*1.3 + nz2(ix*0.14, iz*0.14)*0.35;
+    h -= smoothstep(0.45, 1.15, r) * 5.5;      // deepens offshore
+    H[idx(ix,iz)] = h;
   }
 
-  // No mooring posts. The whole shallow shelf is founding ground — anything that
-  // can touch the bed stands on its own. See ANCHOR_MAX.
-
-  // ── land villages: demand, ashore, each with a deep approach ─────────────
-  villages = [];
-  const vz = [22, 58, 92];
-  for(let k=0;k<vz.length;k++){
-    const iz = clamp(vz[k] + Math.floor((rnd()-0.5)*7), 6, N-7);
-    const side = (k%2===0) ? 1 : -1;
-    const cx = centreX(iz);
-    const vx = clamp(Math.round(cx + side*24), 5, N-6);
-    // flatten a shelf for the houses
-    for(let oz=-3;oz<=3;oz++) for(let ox=-3;ox<=3;ox++){
-      const ix=vx+ox, jz=iz+oz; if(!inGrid(ix,jz)) continue;
-      const i=idx(ix,jz);
-      H[i] = lerp(H[i], 1.0, smoothstep(4.2, 1.0, Math.hypot(ox,oz)));
-    }
-    // carve a navigable approach from the deep core to the village's dock
-    const dockIx = Math.round(cx + side*15), dockIz = iz;
-    for(let t=0;t<=1;t+=0.01){
-      const cxx = lerp(cx + side*5, dockIx, t), czz = lerp(iz, dockIz, t);
-      for(let oz=-3;oz<=3;oz++) for(let ox=-3;ox<=3;ox++){
-        const ix=Math.round(cxx)+ox, jz=Math.round(czz)+oz; if(!inGrid(ix,jz)) continue;
-        const dd=Math.hypot(ix-cxx, jz-czz); if(dd>2.6) continue;
-        const i=idx(ix,jz), target=-1.9;
-        if(H[i] > target) H[i] = lerp(target, target+0.9, smoothstep(1.2, 2.6, dd));
+  // ── shoals ──────────────────────────────────────────────────────────────
+  // 4 banks in the middle third. Each is a gaussian rise to just-standable, with
+  // a long ramp so reaching from the shoal to deep water is a real journey.
+  // Spread WIDE and keep them small. At radius 16–32 with R≈15 they overlap into
+  // one continent: 14% of the map goes standable, every ray upwind hits shoal, so
+  // exposure caps at ~26% and storms can never bite. Separation is the mechanic.
+  const nBanks = 4;
+  for(let k=0;k<nBanks;k++){
+    const ang = (k/nBanks)*6.28 + (rnd()-0.5)*0.5;
+    const rad = 31 + rnd()*12;
+    const cx = clamp(Math.round(N/2 + Math.cos(ang)*rad), 26, N-26);
+    const cz = clamp(Math.round(N/2 + Math.sin(ang)*rad), 26, N-26);
+    const R  = 8 + rnd()*3;
+    const top = -0.35 - rnd()*0.3;             // crest: standable
+    const wobble = makeNoise(s*13+k);
+    for(let iz=Math.max(0,cz-40); iz<Math.min(N,cz+40); iz++)
+      for(let ix=Math.max(0,cx-40); ix<Math.min(N,cx+40); ix++){
+        // Two octaves, and enough amplitude to matter — at ±18% these read as
+        // drawn-compass discs, which is the one thing a natural shoal never is.
+        const d = Math.hypot(ix-cx, iz-cz)
+                * (1 + wobble(ix*0.055, iz*0.055)*0.40 + wobble(ix*0.17, iz*0.17)*0.13);
+        if(d > 38) continue;
+        const i=idx(ix,iz);
+        // crest inside R, then a LONG ramp out to the deep plain
+        const t = smoothstep(R, R+15, d);
+        const want = lerp(top, -8.2, t);
+        if(want > H[i]) H[i] = want;
       }
-    }
-    villages.push({ id:k, name:VILLAGE_NAMES[k], ix:vx, iz:iz,
-      dock:{ix:dockIx, iz:dockIz}, isVillage:true, hasDock:true,
-      waiting:[], delivered:0, content:0, recentWait:0, spawnT:0 });
+    banks.push({ ix:cx, iz:cz, R });
+  }
+
+  // ── a couple of islands, riding on the shoals (as real ones do) ─────────
+  // Small — an island bigger than its shoal would swallow the standable ring and
+  // leave you nowhere to found.
+  const isles=[0,2];
+  for(const k of isles){
+    const b=banks[k]; if(!b) continue;
+    const ox=Math.round((rnd()-0.5)*5), oz=Math.round((rnd()-0.5)*5);
+    const cx=b.ix+ox, cz=b.iz+oz, R=2.5+rnd()*2;
+    for(let iz=Math.max(0,cz-14); iz<Math.min(N,cz+14); iz++)
+      for(let ix=Math.max(0,cx-14); ix<Math.min(N,cx+14); ix++){
+        const d=Math.hypot(ix-cx, iz-cz); if(d>13) continue;
+        const i=idx(ix,iz);
+        const want = lerp(3.2 + nz(ix*0.2,iz*0.2)*0.8, -0.4, smoothstep(R, R+7, d));
+        if(want > H[i]) H[i] = want;
+      }
   }
   H0 = H.slice();
   return true;
 }
 
-// Reject any seed where a village dock isn't reachable through open water.
-function probeReachable(){
-  const ok = i => (BASE_WL - H[i]) >= DRAFT;
-  const start = idx(villages[0].dock.ix, villages[0].dock.iz);
-  if(!ok(start)) return false;
-  const seen=new Uint8Array(N*N), q=[start]; seen[start]=1;
-  while(q.length){
-    const c=q.pop(), cx=c%N, cz=(c/N)|0;
-    for(let oz=-1;oz<=1;oz++) for(let ox=-1;ox<=1;ox++){
-      if(!ox&&!oz) continue;
-      const ix=cx+ox, jz=cz+oz; if(!inGrid(ix,jz)) continue;
-      const i=idx(ix,jz); if(seen[i]||!ok(i)) continue;
-      seen[i]=1; q.push(i);
-    }
+// A sea is playable only if a Deep Berth is reachable: some cell deep enough for
+// a clipper must connect to the map edge, and there must be standable shoal.
+function probeSea(){
+  let stand=0;
+  for(let i=0;i<N*N;i++){ const d=depthAt(i); if(d>0.05 && d<=ANCHOR_MAX) stand++; }
+  if(stand < 120) return false;
+  const need = SHIPS.clipper.draft;
+  let edgeOk=false;
+  for(let ix=0;ix<N;ix++) if(depthAt(idx(ix,0))>=need || depthAt(idx(ix,N-1))>=need) edgeOk=true;
+  return edgeOk;
+}
+function newSea(s){
+  for(let k=0;k<40;k++){ buildSea(s+k); if(probeSea()) return s+k; }
+  buildSea(s); return s;
+}
+
+// ═══════════════════════════════════════════════════════════ exposure / fetch
+let seasonI=0;
+const windDir = () => { const d=SEASONS[seasonI].dir; const m=Math.hypot(d[0],d[1]); return [d[0]/m, d[1]/m]; };
+
+// March UPWIND from a cell. Hit a shoal, island or breakwater → sheltered. Reach
+// open sea → fully exposed. This is why the lee side of your shoal is safe, and
+// why a breakwater buys you a lee you didn't have.
+function fetchAt(ix, iz){
+  const [dx,dz] = windDir();
+  let x=ix, z=iz;
+  for(let d=1; d<=MAX_FETCH; d++){
+    x+=dx; z+=dz;
+    const cx=Math.round(x), cz=Math.round(z);
+    if(!inGrid(cx,cz)) return MAX_FETCH;
+    const i=idx(cx,cz);
+    if(depthAt(i) < SHELTER_DEPTH) return d;             // shoal or land trips the swell
+    if(occ[i]!==-1 && structures[occ[i]].blocks) return d; // breakwater
   }
-  return villages.every(v=>seen[idx(v.dock.ix,v.dock.iz)]);
+  return MAX_FETCH;
 }
-function newValley(s){
-  for(let k=0;k<40;k++){ buildValley(s+k); if(probeReachable()) return s+k; }
-  buildValley(s); return s;
-}
-
-// ══════════════════════════════════════════════ navigability, seasons, drafts
-let seasonI=0, waterLevel=BASE_WL;
-const depthAt = i => waterLevel - H[i];
-// A cell is road if it's deep enough, not iced, AND not built on. Your own town
-// is an obstacle to your own boats — that IS the game.
-const navigable = i => !frozen[i] && occ[i] === -1 && depthAt(i) >= DRAFT;
-
-function applySeason(){
-  const S=SEASONS[seasonI];
-  waterLevel=S.wl; frozen.fill(0);
-  if(S.freeze>0){ const zl=Math.floor(N*S.freeze);
-    for(let iz=0;iz<zl;iz++) for(let ix=0;ix<N;ix++) frozen[idx(ix,iz)]=1; }
-  scene.fog.color.setHex(seasonI===1?0x8ea4b6:seasonI===3?0xb0a078:0x9aa892);
-  key.color.setHex(S.tint);
-  paintWater(); paintTerrain(); layoutStructures();
-  rerouteAll(); refreshHUD();
+const exposureAt = (ix,iz) => fetchAt(ix,iz) / MAX_FETCH;
+function structExposure(s){
+  let worst=0;
+  for(const c of cellsOf(s)) worst = Math.max(worst, exposureAt(c.ix, c.iz));
+  return worst;
 }
 
 // ═══════════════════════════════════════════════════════════════════════ A*
-function findPath(a,b){
+function findPath(a, b, draft){
+  const ok = i => occ[i]===-1 && depthAt(i) >= draft;
   const start=idx(a.ix,a.iz), goal=idx(b.ix,b.iz);
-  if(!navigable(start)||!navigable(goal)) return null;
+  if(!ok(start)||!ok(goal)) return null;
   const g=new Float32Array(N*N).fill(Infinity), f=new Float32Array(N*N).fill(Infinity);
   const from=new Int32Array(N*N).fill(-1), open=new Set([start]);
   const hEst=i=>Math.hypot(i%N-goal%N, ((i/N)|0)-((goal/N)|0));
   g[start]=0; f[start]=hEst(start);
-  while(open.size){
+  let guard=0;
+  while(open.size && guard++ < 60000){
     let cur=-1,best=Infinity;
     for(const i of open) if(f[i]<best){best=f[i];cur=i;}
     if(cur===goal){ const out=[]; let c=cur;
@@ -418,8 +422,8 @@ function findPath(a,b){
     for(let oz=-1;oz<=1;oz++) for(let ox=-1;ox<=1;ox++){
       if(!ox&&!oz) continue;
       const ix=cx+ox, jz=cz+oz; if(!inGrid(ix,jz)) continue;
-      const i=idx(ix,jz); if(!navigable(i)) continue;
-      if(ox&&oz && (!navigable(idx(cx+ox,cz))||!navigable(idx(cx,cz+oz)))) continue;
+      const i=idx(ix,jz); if(!ok(i)) continue;
+      if(ox&&oz && (!ok(idx(cx+ox,cz))||!ok(idx(cx,cz+oz)))) continue;
       const ng=g[cur]+Math.hypot(ox,oz);
       if(ng<g[i]){ from[i]=cur; g[i]=ng; f[i]=ng+hEst(i); open.add(i); }
     }
@@ -438,28 +442,28 @@ renderer.toneMappingExposure = 1.12;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x141d21);
-scene.fog = new THREE.Fog(0x9aa892, 120, 320);
-const camera = new THREE.PerspectiveCamera(30, innerWidth/innerHeight, 0.5, 520);
-camera.position.set(-48, 62, 80);
+scene.background = new THREE.Color(0x9dc0cf);
+scene.fog = new THREE.Fog(0x9dc0cf, 150, 400);
+const camera = new THREE.PerspectiveCamera(30, innerWidth/innerHeight, 0.5, 700);
+camera.position.set(-60, 72, 92);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0,0,4);
+controls.target.set(0,0,0);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
-controls.maxPolarAngle = Math.PI*0.46;
-controls.minDistance = 20; controls.maxDistance = 200;
+controls.maxPolarAngle = Math.PI*0.47;
+controls.minDistance = 20; controls.maxDistance = 240;
 
-const hemi = new THREE.HemisphereLight(0xa6c8e4, 0x5c5740, 0.85); scene.add(hemi);
-const key = new THREE.DirectionalLight(0xffcf92, 2.9);
-key.position.set(-60,74,42); key.castShadow = true;
+const hemi = new THREE.HemisphereLight(0xbdd8ea, 0x3a4a56, 0.95); scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffe0a0, 2.7);
+key.position.set(-70,86,50); key.castShadow = true;
 key.shadow.mapSize.set(2048,2048);
-key.shadow.bias = -0.0005; key.shadow.normalBias = 0.7;   // 2048 over ~170 m acnes without this
-{ const sc=key.shadow.camera; sc.left=-SPAN*0.6; sc.right=SPAN*0.6; sc.top=SPAN*0.6; sc.bottom=-SPAN*0.6;
-  sc.near=1; sc.far=280; sc.updateProjectionMatrix(); }
+key.shadow.bias = -0.0005; key.shadow.normalBias = 0.7;
+{ const sc=key.shadow.camera; sc.left=-SPAN*0.55; sc.right=SPAN*0.55; sc.top=SPAN*0.55; sc.bottom=-SPAN*0.55;
+  sc.near=1; sc.far=340; sc.updateProjectionMatrix(); }
 scene.add(key);
-scene.add(new THREE.AmbientLight(0x4e5e6c, 0.4));
+scene.add(new THREE.AmbientLight(0x54697a, 0.45));
 
-// ── terrain ─────────────────────────────────────────────────────────────────
-const terGeo = new THREE.BufferGeometry();
+// ── seabed ──────────────────────────────────────────────────────────────────
+const bedGeo = new THREE.BufferGeometry();
 {
   const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*3), ind=[];
   for(let iz=0;iz<N;iz++) for(let ix=0;ix<N;ix++){ const i=idx(ix,iz);
@@ -468,37 +472,34 @@ const terGeo = new THREE.BufferGeometry();
     const a=idx(ix,iz),b=idx(ix+1,iz),c=idx(ix,iz+1),d=idx(ix+1,iz+1);
     ind.push(a,c,b, b,c,d);
   }
-  terGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
-  terGeo.setAttribute('color', new THREE.BufferAttribute(col,3));
-  terGeo.setIndex(ind);
+  bedGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  bedGeo.setAttribute('color', new THREE.BufferAttribute(col,3));
+  bedGeo.setIndex(ind);
 }
-const terMesh = new THREE.Mesh(terGeo, new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.94 }));
-terMesh.receiveShadow = true; terMesh.castShadow = true;
-scene.add(terMesh);
+const bedMesh = new THREE.Mesh(bedGeo, new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.95 }));
+bedMesh.receiveShadow = true; bedMesh.castShadow = true;
+scene.add(bedMesh);
 
-const C_SILT=new THREE.Color(0x9c8a63), C_MUD=new THREE.Color(0x7d6a47);
-const C_GRASS=new THREE.Color(0x5f7d42), C_HIGH=new THREE.Color(0x7f8a58);
-const C_SNOW=new THREE.Color(0xdce6ec);
+const C_SAND=new THREE.Color(0xd8c89a), C_GRASS=new THREE.Color(0x6f8a4e), C_ROCK=new THREE.Color(0x8a8470);
+const C_BED =new THREE.Color(0x4a5560), C_BEDD=new THREE.Color(0x2a323c);
 const _c=new THREE.Color();
-
-function paintTerrain(){
-  const pos=terGeo.attributes.position.array, col=terGeo.attributes.color.array;
+function paintBed(){
+  const pos=bedGeo.attributes.position.array, col=bedGeo.attributes.color.array;
   for(let i=0;i<N*N;i++){
     const h=H[i]; pos[i*3+1]=h;
-    const a=h-waterLevel;
-    if(a<0) _c.copy(C_SILT);
-    else if(a<0.7) _c.copy(C_MUD).lerp(C_GRASS, a/0.7);
-    else _c.copy(C_GRASS).lerp(C_HIGH, smoothstep(0.7, 8, a));
-    if(frozen[i] && a>-0.2) _c.lerp(C_SNOW, 0.55);
+    const a=h-WL;
+    if(a>0.5)       _c.copy(C_GRASS).lerp(C_ROCK, smoothstep(0.5,4,a));
+    else if(a>-1.4) _c.copy(C_SAND);
+    else            _c.copy(C_BED).lerp(C_BEDD, smoothstep(-2,-9,a));
     col[i*3]=_c.r; col[i*3+1]=_c.g; col[i*3+2]=_c.b;
   }
-  terGeo.attributes.position.needsUpdate = true;
-  terGeo.attributes.color.needsUpdate = true;
-  terGeo.computeVertexNormals(); terGeo.computeBoundingSphere();
+  bedGeo.attributes.position.needsUpdate = true;
+  bedGeo.attributes.color.needsUpdate = true;
+  bedGeo.computeVertexNormals(); bedGeo.computeBoundingSphere();
 }
 
-// ── water ───────────────────────────────────────────────────────────────────
-const watGeo = new THREE.BufferGeometry();
+// ── sea ─────────────────────────────────────────────────────────────────────
+const seaGeo = new THREE.BufferGeometry();
 {
   const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*4), ind=[];
   for(let iz=0;iz<N;iz++) for(let ix=0;ix<N;ix++){ const i=idx(ix,iz);
@@ -507,557 +508,361 @@ const watGeo = new THREE.BufferGeometry();
     const a=idx(ix,iz),b=idx(ix+1,iz),c=idx(ix,iz+1),d=idx(ix+1,iz+1);
     ind.push(a,c,b, b,c,d);
   }
-  watGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
-  watGeo.setAttribute('color', new THREE.BufferAttribute(col,4));   // vec4 → per-vertex alpha
-  watGeo.setIndex(ind);
-  watGeo.computeVertexNormals();  // MANDATORY: no normals ⇒ zero normal ⇒ black river
+  seaGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  seaGeo.setAttribute('color', new THREE.BufferAttribute(col,4));
+  seaGeo.setIndex(ind);
+  seaGeo.computeVertexNormals();   // MANDATORY: no normals ⇒ zero normal ⇒ black sea
 }
-const uTime={value:0};
-const watMat = new THREE.MeshStandardMaterial({ vertexColors:true, transparent:true,
-  roughness:0.3, metalness:0.0, depthWrite:false, side:THREE.DoubleSide });
-watMat.onBeforeCompile = sh => {
-  sh.uniforms.uTime = uTime;
-  sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+const uTime={value:0}, uSwell={value:0};
+const seaMat = new THREE.MeshStandardMaterial({ vertexColors:true, transparent:true,
+  roughness:0.24, metalness:0.0, depthWrite:false, side:THREE.DoubleSide });
+seaMat.onBeforeCompile = sh => {
+  sh.uniforms.uTime = uTime; sh.uniforms.uSwell = uSwell;
+  sh.vertexShader = 'uniform float uTime;\nuniform float uSwell;\n' + sh.vertexShader.replace('#include <begin_vertex>',
     `#include <begin_vertex>
-     transformed.y += sin(transformed.x*0.62 + uTime*1.25)*0.042
-                    + sin(transformed.z*0.83 - uTime*1.63)*0.036;`);
+     float sw = 0.05 + uSwell*0.42;
+     transformed.y += sin(transformed.x*0.28 + uTime*1.5)*sw
+                    + sin(transformed.z*0.36 - uTime*1.9)*sw*0.8;`);
 };
-const watMesh = new THREE.Mesh(watGeo, watMat); watMesh.renderOrder = 2; scene.add(watMesh);
+const seaMesh = new THREE.Mesh(seaGeo, seaMat); seaMesh.renderOrder = 2; scene.add(seaMesh);
 
-const C_SHALLOW=new THREE.Color(0xe4d5ac), C_EDGE=new THREE.Color(0x93c4ab);
-const C_NAV=new THREE.Color(0x4e9a97), C_DEEP=new THREE.Color(0x1e5560);
-const C_ICE=new THREE.Color(0xdce9f2);
+const C_SHOAL=new THREE.Color(0xe8dcb4), C_SHALLOW=new THREE.Color(0x5fc4b8);
+const C_MID=new THREE.Color(0x2a7a94), C_DEEP=new THREE.Color(0x123a5a);
+let showExposure = 0;
+const C_EXPOSED=new THREE.Color(0xd86a5a);
 
-function paintWater(){
-  const col=watGeo.attributes.color.array;
+function paintSea(){
+  const col=seaGeo.attributes.color.array;
   for(let i=0;i<N*N;i++){
     const d=depthAt(i); let a=0;
     if(d<=0.02){ a=0; }
     else{
-      a=clamp(0.35+d*0.42, 0, 0.93);
-      if(frozen[i]){ _c.copy(C_ICE); a=0.97; }
-      else if(d<DRAFT) _c.copy(C_SHALLOW).lerp(C_EDGE, d/DRAFT);
-      else if(d<DRAFT+1.1) _c.copy(C_EDGE).lerp(C_NAV, (d-DRAFT)/1.1);
-      else _c.copy(C_NAV).lerp(C_DEEP, smoothstep(DRAFT+1.1, 4.2, d));
+      a = clamp(0.4 + d*0.12, 0, 0.9);
+      if(d<=ANCHOR_MAX)   _c.copy(C_SHOAL);
+      else if(d<2.6)      _c.copy(C_SHOAL).lerp(C_SHALLOW, (d-ANCHOR_MAX)/1.6);
+      else if(d<6.5)      _c.copy(C_SHALLOW).lerp(C_MID, (d-2.6)/3.9);
+      else                _c.copy(C_MID).lerp(C_DEEP, smoothstep(6.5, 12, d));
+      if(showExposure){
+        const ix=i%N, iz=(i/N)|0;
+        _c.lerp(C_EXPOSED, exposureAt(ix,iz)*0.5);
+      }
     }
     col[i*4]=_c.r; col[i*4+1]=_c.g; col[i*4+2]=_c.b; col[i*4+3]=a;
   }
-  watGeo.attributes.color.needsUpdate = true;
-  watMesh.position.y = waterLevel;
-}
-
-// ── scenery ─────────────────────────────────────────────────────────────────
-const treeGeo=new THREE.ConeGeometry(1.0,3.4,6); treeGeo.translate(0,1.7,0);
-const treeMat=new THREE.MeshStandardMaterial({ color:0x54763f, roughness:0.9, flatShading:true });
-let trees;
-function scatterTrees(){
-  if(trees){ scene.remove(trees); trees=null; }
-  const dens = (typeof OPTS!=='undefined') ? (TREE_PRESET[OPTS.trees] ?? 1) : 1;
-  if(dens <= 0) return;
-  const M=[], m4=new THREE.Matrix4(), q=new THREE.Quaternion(), r=mulberry32(seed*11+5);
-  for(let k=0;k<2600;k++){
-    const ix=2+Math.floor(r()*(N-4)), iz=2+Math.floor(r()*(N-4));
-    const h=H[idx(ix,iz)];
-    if(h<1.2||h>8.5) continue;
-    if(r() > smoothstep(1.2,3.4,h)*0.85*dens) continue;
-    const s=0.6+r()*0.85;
-    m4.compose(new THREE.Vector3(wx(ix)+(r()-0.5)*CS, h-0.15, wz(iz)+(r()-0.5)*CS),
-      q.setFromAxisAngle(new THREE.Vector3(0,1,0), r()*6.28),
-      new THREE.Vector3(s, s*(0.8+r()*0.5), s));
-    M.push(m4.clone());
-  }
-  trees=new THREE.InstancedMesh(treeGeo, treeMat, M.length);
-  M.forEach((m,i)=>trees.setMatrixAt(i,m));
-  trees.castShadow=true; trees.receiveShadow=true; scene.add(trees);
-}
-
-// ═══════════════════════════════════════════════════════ villages & moorings
-const villageGroup=new THREE.Group(); scene.add(villageGroup);
-const C_LAN_GOLD=new THREE.Color(0xffa229), C_LAN_BLUE=new THREE.Color(0x3a6ecc);
-
-function buildVillageVisuals(){
-  villageGroup.clear();
-  const houseMat=new THREE.MeshStandardMaterial({ color:0x6b5540, roughness:0.85 });
-  const roofMat=new THREE.MeshStandardMaterial({ color:0x8a4a3c, roughness:0.8 });
-  for(const v of villages){
-    const g=new THREE.Group(), base=H[idx(v.ix,v.iz)];
-    g.position.set(wx(v.ix), base, wz(v.iz));
-    const r=mulberry32(v.id*31+13);
-    for(let k=0;k<4+Math.floor(r()*3);k++){
-      const ox=(r()-0.5)*7, oz=(r()-0.5)*7;
-      const ix=clamp(Math.round(v.ix+ox/CS),0,N-1), jz=clamp(Math.round(v.iz+oz/CS),0,N-1);
-      const hh=Math.max(H[idx(ix,jz)], waterLevel+0.1);
-      const w=1.5+r()*0.9, d=1.4+r()*0.9, ht=1.4+r()*0.7;
-      const b=new THREE.Mesh(new THREE.BoxGeometry(w,ht,d), houseMat);
-      b.position.set(ox, hh-base+ht/2, oz); b.rotation.y=r()*6.28;
-      b.castShadow=true; b.receiveShadow=true; g.add(b);
-      const rf=new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*0.82,1.0,4), roofMat);
-      rf.position.set(ox, hh-base+ht+0.5, oz); rf.rotation.y=b.rotation.y+Math.PI/4;
-      rf.castShadow=true; g.add(rf);
-    }
-    // toneMapped:false — ACES blows a bright basic material to white, and
-    // gold-vs-blue IS the contentment read.
-    const lan=new THREE.Mesh(new THREE.SphereGeometry(0.46,12,10),
-      new THREE.MeshBasicMaterial({ color:0xffa229, toneMapped:false }));
-    lan.position.set(0,4.4,0); g.add(lan);
-    const glow=new THREE.PointLight(0xffa229, 8, 20, 2); glow.position.copy(lan.position); g.add(glow);
-    v.lantern=lan; v.glow=glow;
-    villageGroup.add(g);
-
-    const dg=new THREE.Group();
-    dg.position.set(wx(v.dock.ix), waterLevel, wz(v.dock.iz));
-    const deck=new THREE.Mesh(new THREE.BoxGeometry(3.0,0.3,1.6),
-      new THREE.MeshStandardMaterial({ color:0x4a3a2c, roughness:0.9 }));
-    deck.position.y=0.35; deck.castShadow=true; dg.add(deck);
-    v.dockMesh=dg; villageGroup.add(dg);
-  }
-  // No mooring posts to draw — the pale shallows ARE the founding ground, and
-  // the depth colouring already says so without a single marker.
+  seaGeo.attributes.color.needsUpdate = true;
+  seaMesh.position.y = WL;
 }
 
 // ═════════════════════════════════════════════════════════════════ structures
 const structGroup=new THREE.Group(); scene.add(structGroup);
-
 function cellsOf(s){
   const out=[];
   for(let oz=0;oz<s.h;oz++) for(let ox=0;ox<s.w;ox++) out.push({ix:s.x0+ox, iz:s.z0+oz});
   return out;
 }
-
-// Can this footprint reach the riverbed and stand on its own? Only if some cell
-// under it is shallow enough to drive a pile into. A structure drawing more than
-// ANCHOR_MAX can never satisfy this — its own draft guarantees deep water — so
-// every money-maker is forced to hold onto the chain back to the shallows.
-function selfAnchors(x0, z0, T){
-  for(const c of cellsOf({x0, z0, w:T.w, h:T.h})){
-    if(!inGrid(c.ix, c.iz)) continue;
-    if(depthAt(idx(c.ix, c.iz)) <= ANCHOR_MAX) return true;
+// Can it reach the bed? A breakwater is a rubble mound so it founds deeper than a
+// pile. Everything else: only on the shoal.
+function selfAnchors(x0,z0,T){
+  const lim = T.maxDepth ?? ANCHOR_MAX;
+  for(const c of cellsOf({x0,z0,w:T.w,h:T.h})){
+    if(!inGrid(c.ix,c.iz)) continue;
+    const d = depthAt(idx(c.ix,c.iz));
+    if(d > 0.02 && d <= lim) return true;
   }
   return false;
 }
-// ...or is it lashed to something that is already holding on? Orthogonal
-// neighbours only — corners don't lash.
-function touchesRaft(x0, z0, T){
+function touchesRaft(x0,z0,T){
   for(let oz=-1;oz<=T.h;oz++) for(let ox=-1;ox<=T.w;ox++){
-    const inside = ox>=0 && ox<T.w && oz>=0 && oz<T.h;
-    if(inside) continue;
-    const orth = (ox===-1||ox===T.w) !== (oz===-1||oz===T.h);
-    if(!orth) continue;
+    const inside = ox>=0&&ox<T.w&&oz>=0&&oz<T.h; if(inside) continue;
+    const orth = (ox===-1||ox===T.w) !== (oz===-1||oz===T.h); if(!orth) continue;
     const ix=x0+ox, iz=z0+oz; if(!inGrid(ix,iz)) continue;
     const i=idx(ix,iz);
     if(occ[i]!==-1 && structures[occ[i]].anchored) return true;
   }
   return false;
 }
-const touchesAnchor = (x0, z0, T) => selfAnchors(x0, z0, T) || touchesRaft(x0, z0, T);
+const touchesAnchor=(x0,z0,T)=>selfAnchors(x0,z0,T)||touchesRaft(x0,z0,T);
 
-// Refusals must name the rule AND the number. In a no-fail builder this message
-// is the entire teaching surface.
-function whyNot(typeKey, x0, z0){
-  const T=TYPES[typeKey];
+function whyNot(k, x0, z0){
+  const T=TYPES[k];
   if(coin < T.cost) return `${T.name} costs <b>${T.cost}</b> — you have ${Math.round(coin)}`;
-  let minD = Infinity;
+  let minD=Infinity, maxD=-Infinity;
   for(const c of cellsOf({x0,z0,w:T.w,h:T.h})){
-    if(!inGrid(c.ix,c.iz)) return 'outside the valley';
+    if(!inGrid(c.ix,c.iz)) return 'off the chart';
     const i=idx(c.ix,c.iz);
-    if(occ[i]!==-1) return `${structures[occ[i]].name} is already moored here`;
-    if(frozen[i]) return 'iced in — nothing moors here until thaw';
-    minD = Math.min(minD, depthAt(i));
+    if(occ[i]!==-1) return `${structures[occ[i]].name} is already there`;
+    const d=depthAt(i); minD=Math.min(minD,d); maxD=Math.max(maxD,d);
   }
-  if(minD < T.draft)
-    return `too shallow — ${T.name} draws <b>${T.draft.toFixed(2)} m</b>, this is ${Math.max(0,minD).toFixed(2)} m`;
+  if(minD <= 0.02) return 'that\'s dry land';
+  if(T.maxDepth && maxD > T.maxDepth)
+    return `too deep to found — a ${T.name} reaches <b>${T.maxDepth.toFixed(1)} m</b>, this is ${maxD.toFixed(1)} m`;
+  if(minD < T.need)
+    return `too shallow — ${T.name} needs <b>${T.need.toFixed(2)} m</b>, this is ${Math.max(0,minD).toFixed(2)} m`;
   if(!touchesAnchor(x0,z0,T))
-    return `nothing to hold — <b>${T.name}</b> can't touch the bed out here. Lash it to your town.`;
+    return `nothing to hold — <b>${T.name}</b> can't reach the bed out here. Lash it to your town.`;
   return null;
 }
 
-function addStructRaw(typeKey, x0, z0){
-  const T=TYPES[typeKey];
-  const s={ ...T, x0, z0, anchored:true, open:true, idx:structures.length, uid:uidNext++ };
+function addStructRaw(k, x0, z0){
+  const T=TYPES[k];
+  const s={ ...T, x0, z0, anchored:true, open:true, integrity:1,
+            idx:structures.length, uid:uidNext++, shipT:0 };
   structures.push(s);
   for(const c of cellsOf(s)) occ[idx(c.ix,c.iz)] = s.idx;
   addStructMesh(s);
   return s;
 }
-function place(typeKey, x0, z0){
-  const why = whyNot(typeKey, x0, z0);
+function place(k, x0, z0){
+  const why=whyNot(k,x0,z0);
   if(why){ flash(why, true); return null; }
-  const s = addStructRaw(typeKey, x0, z0);
+  const s=addStructRaw(k,x0,z0);
   coin -= s.cost;
-  restaff(); rerouteAll(); refreshHUD(); renderPalette(); tickTutorial();
+  if(s.blocks) paintSea();            // a breakwater rewrites the shelter map
+  restaff(); refreshHUD(); renderPalette(); renderDocks(); tickTutorial();
   return s;
 }
-
-// occ stores ARRAY indices, so any removal shifts them — rebuild both together.
 function rebuildOcc(){
   occ.fill(-1);
   structures.forEach((s,i)=>{ s.idx=i; for(const c of cellsOf(s)) occ[idx(c.ix,c.iz)]=i; });
 }
-// Flood the "is holding on" property outward from everything that can touch the
-// bed. Anything the flood doesn't reach is floating free.
 function recomputeAnchors(){
-  for(const s of structures) s.anchored = false;
+  for(const s of structures) s.anchored=false;
   const q=[];
-  for(const s of structures) if(selfAnchors(s.x0, s.z0, s)){ s.anchored=true; q.push(s); }
+  for(const s of structures) if(selfAnchors(s.x0,s.z0,s)){ s.anchored=true; q.push(s); }
   while(q.length){
     const s=q.pop();
-    for(const c of cellsOf(s)){
-      for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){
-        const ix=c.ix+dx, iz=c.iz+dz; if(!inGrid(ix,iz)) continue;
-        const o=occ[idx(ix,iz)];
-        if(o!==-1 && !structures[o].anchored){ structures[o].anchored=true; q.push(structures[o]); }
-      }
+    for(const c of cellsOf(s)) for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const ix=c.ix+dx, iz=c.iz+dz; if(!inGrid(ix,iz)) continue;
+      const o=occ[idx(ix,iz)];
+      if(o!==-1 && !structures[o].anchored){ structures[o].anchored=true; q.push(structures[o]); }
     }
   }
 }
-
-// Breaking up a spine piece would cut everything beyond it loose. Rather than
-// silently drown half your town (drift isn't implemented — see DESIGN.md), refuse
-// and say how many. This makes the raft's topology legible: you disassemble from
-// the outside in, the same way you built it.
-function demolish(s){
-  const i = structures.indexOf(s);
-  if(i < 0) return false;
+function removeStruct(s, refund){
+  const i=structures.indexOf(s); if(i<0) return false;
   structures.splice(i,1); rebuildOcc(); recomputeAnchors();
-  const orphans = structures.filter(x=>!x.anchored);
+  if(refund != null) coin += refund;
+  structGroup.remove(s.mesh);
+  if(s.blocks) paintSea();
+  restaff(); refreshHUD(); renderPalette(); renderDocks();
+  return true;
+}
+// Refuse a cut that would set the rest adrift — you break up from the outside in.
+function demolish(s){
+  const i=structures.indexOf(s); if(i<0) return false;
+  structures.splice(i,1); rebuildOcc(); recomputeAnchors();
+  const orphans=structures.filter(x=>!x.anchored);
   if(orphans.length){
-    structures.splice(i, 0, s); rebuildOcc(); recomputeAnchors();
-    flash(`That would set <b>${orphans.length}</b> ${orphans.length===1?'building':'buildings'} adrift. Break up from the outside in.`, true);
+    structures.splice(i,0,s); rebuildOcc(); recomputeAnchors();
+    flash(`That would set <b>${orphans.length}</b> adrift. Break up from the outside in.`, true);
     return false;
   }
-  // Full refund, deliberately. The cost of a bad moor should be the space it
-  // wasted and the time it took — never a money punishment. This is a cozy game.
-  coin += s.cost;
-  structGroup.remove(s.mesh);
-  restaff(); rerouteAll(); refreshHUD(); renderPalette();
-  flash(`<b>${s.name}</b> broken up — ${s.cost} coin back.`);
+  structures.splice(i,0,s); rebuildOcc(); recomputeAnchors();   // restore, then remove properly
+  removeStruct(s, Math.round(s.cost * s.integrity));
+  flash(`<b>${s.name}</b> broken up.`);
   return true;
 }
 const structAt = pt => {
   const ix=gx(pt.x), iz=gz(pt.z);
   if(!inGrid(ix,iz)) return null;
   const o=occ[idx(ix,iz)];
-  return o===-1 ? null : structures[o];
+  return o===-1?null:structures[o];
 };
 
-const structMats = {};
-function matFor(s, dim){
-  const k = s.key + (dim?'_d':'');
-  if(!structMats[k]) structMats[k] = new THREE.MeshStandardMaterial({
-    color: dim ? new THREE.Color(s.color).lerp(new THREE.Color(0x2a3038), 0.55) : s.color,
-    roughness:0.82 });
+const structMats={};
+function matFor(s, state){
+  const k=s.key+state;
+  if(!structMats[k]){
+    let c=new THREE.Color(s.color);
+    if(state==='_shut') c.lerp(new THREE.Color(0x2a3038), 0.55);
+    if(state==='_hurt') c.lerp(new THREE.Color(0x40261e), 0.45);
+    structMats[k]=new THREE.MeshStandardMaterial({ color:c, roughness:0.82 });
+  }
   return structMats[k];
 }
-
 function addStructMesh(s){
   const g=new THREE.Group();
   const cw=s.w*CS, ch=s.h*CS;
-  const hull=new THREE.Mesh(new THREE.BoxGeometry(cw*0.96, 0.32, ch*0.96),
-    new THREE.MeshStandardMaterial({ color:0x6a563d, roughness:0.9 }));
+  const hull=new THREE.Mesh(new THREE.BoxGeometry(cw*0.96, 0.3, ch*0.96),
+    new THREE.MeshStandardMaterial({ color: s.blocks?0x6b6560:0x6a563d, roughness:0.92 }));
   hull.position.y=0.02; hull.castShadow=true; hull.receiveShadow=true; g.add(hull);
-  if(s.tall > 0.3){
-    const body=new THREE.Mesh(new THREE.BoxGeometry(cw*0.74, s.tall, ch*0.74), matFor(s,false));
-    body.position.y=0.18+s.tall/2; body.castShadow=true; body.receiveShadow=true;
+  if(s.tall>0.3){
+    const body=new THREE.Mesh(new THREE.BoxGeometry(cw*0.72, s.tall, ch*0.72), matFor(s,''));
+    body.position.y=0.17+s.tall/2; body.castShadow=true; body.receiveShadow=true;
     g.add(body); s.bodyMesh=body;
     if(s.roof){
-      const rf=new THREE.Mesh(new THREE.ConeGeometry(Math.max(cw,ch)*0.6, 0.9, 4),
+      const rf=new THREE.Mesh(new THREE.ConeGeometry(Math.max(cw,ch)*0.58, 0.9, 4),
         new THREE.MeshStandardMaterial({ color:0x7a4438, roughness:0.85 }));
-      rf.position.y=0.18+s.tall+0.45; rf.rotation.y=Math.PI/4; rf.castShadow=true; g.add(rf);
+      rf.position.y=0.17+s.tall+0.45; rf.rotation.y=Math.PI/4; rf.castShadow=true; g.add(rf);
     }
   }
   structGroup.add(g); s.mesh=g;
-  positionStruct(s);
+  posStruct(s);
 }
-function positionStruct(s){
-  s.mesh.position.set(wx(s.x0) + (s.w-1)*CS/2, waterLevel, wz(s.z0) + (s.h-1)*CS/2);
-}
-function layoutStructures(){ for(const s of structures) positionStruct(s); }
+function posStruct(s){ s.mesh.position.set(wx(s.x0)+(s.w-1)*CS/2, WL, wz(s.z0)+(s.h-1)*CS/2); }
 
-// Services draw staff from one global pool of residents. Simple and readable —
-// and the contiguous-raft rule already guarantees everyone can walk to work.
-let residents=0, staffNeed=0, fare=BASE_FARE;
+let residents=0, staffNeed=0;
 function restaff(){
-  residents = structures.reduce((a,s)=>a+s.res, 0);
-  let pool = residents; staffNeed = 0; fare = BASE_FARE;
+  residents = structures.reduce((a,s)=>a+s.res,0);
+  let pool=residents; staffNeed=0;
   for(const s of structures){
-    if(!s.staff){ s.open = true; continue; }
+    if(!s.staff){ s.open=true; continue; }
     staffNeed += s.staff;
-    if(pool >= s.staff){ pool -= s.staff; s.open = true; fare += s.value; }
-    else s.open = false;
-    if(s.bodyMesh) s.bodyMesh.material = matFor(s, !s.open);
+    s.open = pool >= s.staff;
+    if(s.open) pool -= s.staff;
+    if(s.bodyMesh) s.bodyMesh.material = matFor(s, !s.open ? '_shut' : (s.integrity<0.55 ? '_hurt' : ''));
   }
 }
 
-// ══════════════════════════════════════════════════════════════ lines & boats
-let lines=[];
-const lineGroup=new THREE.Group(); scene.add(lineGroup);
-const boatGroup=new THREE.Group(); scene.add(boatGroup);
-
-function berthWhy(stop){
-  // A demolished wharf leaves its berth as plain navigable water, so the line
-  // would happily keep running to nowhere. Check the structure still exists.
-  if(stop.isWharf && !structures.some(s=>s.uid===stop.uid)) return 'your Wharf is gone';
-  const i=idx(stop.dock.ix, stop.dock.iz);
-  if(frozen[i]) return `${stop.name} is iced in`;
-  if(occ[i]!==-1) return `${stop.name}'s berth is built over`;
-  if(depthAt(i) < DRAFT) return `${stop.name}'s berth is too shallow`;
-  return null;
-}
-// Ice and a blocked channel are the same to navigable() but NOT to the player:
-// one you wait out, the other you dredge or tear down.
-function reachableIgnoringIce(a,b){
-  const ok=i=>occ[i]===-1 && depthAt(i)>=DRAFT;
-  const start=idx(a.dock.ix,a.dock.iz), goal=idx(b.dock.ix,b.dock.iz);
-  if(!ok(start)||!ok(goal)) return false;
-  const seen=new Uint8Array(N*N), q=[start]; seen[start]=1;
-  while(q.length){ const c=q.pop(); if(c===goal) return true;
-    const cx=c%N, cz=(c/N)|0;
-    for(let oz=-1;oz<=1;oz++) for(let ox=-1;ox<=1;ox++){
-      if(!ox&&!oz) continue;
-      const ix=cx+ox, jz=cz+oz; if(!inGrid(ix,jz)) continue;
-      const i=idx(ix,jz); if(seen[i]||!ok(i)) continue;
-      seen[i]=1; q.push(i); } }
-  return false;
-}
-function reasonNoPath(a,b){
-  return berthWhy(a) || berthWhy(b)
-    || (reachableIgnoringIce(a,b) ? `the channel to ${b.name} is frozen over`
-                                  : `your town has blocked the channel to ${b.name}`);
-}
-
-const pathLen = p => {
-  let d=0;
-  for(let k=1;k<p.length;k++) d += Math.hypot(p[k].ix-p[k-1].ix, p[k].iz-p[k-1].iz);
-  return d*CS;
-};
-
-function routeLine(l){
-  l.broken=null; l.pts=null; l.marks=null;
-  if(l.stops.length<2){ drawLine(l); return; }
-  const legs=[];
-  for(let k=0;k<l.stops.length-1;k++){
-    const p=findPath(l.stops[k].dock, l.stops[k+1].dock);
-    if(!p){ l.broken=reasonNoPath(l.stops[k], l.stops[k+1]); drawLine(l); return; }
-    legs.push(p);
-  }
-  const seq=[...legs];
-  for(let k=legs.length-1;k>=0;k--) seq.push(legs[k].slice().reverse());
-  const visit=[l.stops[0]];
-  for(let k=1;k<l.stops.length;k++) visit.push(l.stops[k]);
-  for(let k=l.stops.length-2;k>=0;k--) visit.push(l.stops[k]);
-  const pts=[], marks=[];
-  for(let s=0;s<seq.length;s++){
-    const path=seq[s];
-    for(let k=(s===0?0:1); k<path.length; k++)
-      pts.push(new THREE.Vector3(wx(path[k].ix), 0, wz(path[k].iz)));
-    if(s===0) marks.push({i:0, site:visit[0]});
-    marks.push({i:pts.length-1, site:visit[s+1]});
-  }
-  l.pts=pts; l.marks=marks;
-  l.outIdx = marks[legs.length].i;
-  // Sum real step distances, NOT path.length. A* moves 8-connected, so counting
-  // cells under-measures every diagonal by 41% and the detour ratio comes out
-  // BELOW 1 — i.e. shorter than a straight line, which is impossible. The
-  // fairway readout is the entire instrument for this game's core mechanic; it
-  // cannot be approximate.
-  l.len = legs.reduce((a,leg)=>a+pathLen(leg), 0);
-  // Detour vs. the straight-line ideal — this number IS the fairway squeeze.
-  if(!l.baseLen){
-    let straight=0;
-    for(let k=0;k<l.stops.length-1;k++)
-      straight += Math.hypot(l.stops[k].dock.ix-l.stops[k+1].dock.ix,
-                             l.stops[k].dock.iz-l.stops[k+1].dock.iz) * CS;
-    l.baseLen = straight;
-  }
-  drawLine(l);
-}
-function drawLine(l){
-  if(l.ribbon){ lineGroup.remove(l.ribbon); l.ribbon.geometry.dispose(); l.ribbon=null; }
-  if(!l.pts || l.pts.length<2) return;
-  const pts=l.pts.slice(0, (l.outIdx ?? l.pts.length-1)+1)
-                 .map(p=>new THREE.Vector3(p.x, waterLevel+0.22, p.z));
-  const g=new THREE.BufferGeometry().setFromPoints(pts);
-  l.ribbon=new THREE.Line(g, new THREE.LineBasicMaterial({ color:l.color, transparent:true, opacity:0.85 }));
-  l.ribbon.renderOrder=3; lineGroup.add(l.ribbon);
-}
-// Point indices don't survive a reroute — reset boats rather than let them index
-// into a shorter array.
-function rerouteAll(){
-  for(const l of lines){ routeLine(l); for(const b of l.boats){ b.seg=0; b.frac=0; b.dwell=0; } }
-  renderLineList();
-}
-
-function makeBoat(l){
-  const g=new THREE.Group();
-  const hull=new THREE.Mesh(new THREE.BoxGeometry(1.15,0.5,2.7),
-    new THREE.MeshStandardMaterial({ color:0x7d6448, roughness:0.8 }));
-  hull.position.y=0.25; hull.castShadow=true; g.add(hull);
-  const cab=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.5,0.9),
-    new THREE.MeshStandardMaterial({ color:0x5b4a36, roughness:0.85 }));
-  cab.position.set(0,0.72,-0.3); cab.castShadow=true; g.add(cab);
-  const lamp=new THREE.Mesh(new THREE.SphereGeometry(0.15,8,6),
-    new THREE.MeshBasicMaterial({ color:l.color, toneMapped:false }));
-  lamp.position.set(0,1.12,0.9); g.add(lamp);
-  const pl=new THREE.PointLight(l.color,3,9,2); pl.position.copy(lamp.position); g.add(pl);
-  boatGroup.add(g);
-  return { mesh:g, seg:0, frac:0, dwell:0, load:0 };
-}
-
-// ═══════════════════════════════════════════════════════════════════════ sim
-let coin=START_COIN, clock=0, totalVisitors=0, running=false;
+// ══════════════════════════════════════════════════════════════════════ ships
+const shipGroup=new THREE.Group(); scene.add(shipGroup);
+let ships=[], coin=START_COIN, clock=0, landed=0, running=false;
 const _p=new THREE.Vector3();
 
-function placeBoat(l,b){
-  const a=l.pts[b.seg], c=l.pts[(b.seg+1)%l.pts.length];
-  _p.copy(a).lerp(c, b.frac);
-  b.mesh.position.set(_p.x, waterLevel+0.06, _p.z);
-  if(a.distanceToSquared(c)>1e-6) b.mesh.rotation.y = Math.atan2(c.x-a.x, c.z-a.z);
-  b.mesh.position.y += Math.sin(clock*1.9 + b.seg*0.5)*0.035;
-}
-function transact(site,b){
-  if(site.isWharf){
-    if(b.load>0){ coin += b.load*fare; totalVisitors += b.load; b.load=0; refreshHUD(); }
-    return;
-  }
-  const take=Math.min(site.waiting.length, BOAT_CAP-b.load);
-  if(take>0){
-    const boarded=site.waiting.splice(0,take);
-    // OLDEST boarder only (queue is FIFO). Averaging every passenger in order
-    // converges on the LAST processed — the newest arrival, who barely waited —
-    // so the lantern would report the luckiest villager on the boat.
-    site.recentWait = lerp(site.recentWait ?? 0, clock - boarded[0], 0.4);
-    b.load += take; site.delivered += take;
-  }
-}
-function arriveAt(l,b,s){
-  let hit=false;
-  for(const m of l.marks) if(m.i===s){ transact(m.site,b); hit=true; }
-  if(hit){ b.dwell=DOCK_DWELL; placeBoat(l,b); }
-  return hit;
-}
-function stepBoat(l,b,dt){
-  if(!l.pts||l.pts.length<2) return;
-  if(b.seg>=l.pts.length){ b.seg=0; b.frac=0; }
-  if(b.dwell>0){ b.dwell-=dt; placeBoat(l,b); return; }
-  let rem=BOAT_SPD*dt, guard=0;
-  while(rem>0 && guard++<400){
-    const a=l.pts[b.seg], c=l.pts[(b.seg+1)%l.pts.length];
-    const segLen=a.distanceTo(c);
-    if(segLen<1e-4){ b.seg=(b.seg+1)%l.pts.length; b.frac=0; if(arriveAt(l,b,b.seg)) return; continue; }
-    const need=(1-b.frac)*segLen;
-    if(rem<need){ b.frac+=rem/segLen; rem=0; }
-    else { rem-=need; b.seg=(b.seg+1)%l.pts.length; b.frac=0; if(arriveAt(l,b,b.seg)) return; }
-  }
-  placeBoat(l,b);
-}
-
-function step(dt){
-  clock+=dt;
-  const served = new Set();
-  for(const l of lines) if(l.pts) for(const m of l.marks) if(m.site.isVillage) served.add(m.site.id);
-  for(const v of villages){
-    if(!served.has(v.id) && v.waiting.length===0 && v.delivered===0){ v.content=0; continue; }
-    v.spawnT += dt;
-    while(v.spawnT >= SPAWN_EVERY){ v.spawnT -= SPAWN_EVERY; v.waiting.push(clock); }
-    const oldest = v.waiting.length ? clock - v.waiting[0] : 0;
-    const felt = Math.max(oldest, v.recentWait ?? 0);
-    v.content = lerp(v.content, clamp(1 - felt/PATIENCE, 0, 1), 1-Math.exp(-dt*0.25));
-  }
-  for(const l of lines) for(const b of l.boats) stepBoat(l,b,dt);
-  for(const v of villages){
-    if(!v.lantern) continue;
-    _c.copy(C_LAN_BLUE).lerp(C_LAN_GOLD, v.content);
-    v.lantern.material.color.copy(_c); v.glow.color.copy(_c);
-    v.glow.intensity = lerp(2.0, 9.0, v.content) * (0.92 + Math.sin(clock*2.6 + v.id)*0.08);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════ dredging
-function dredgeCostAt(cx,cz){
-  let vol=0;
-  for(let oz=-4;oz<=4;oz++) for(let ox=-4;ox<=4;ox++){
-    const ix=cx+ox, iz=cz+oz; if(!inGrid(ix,iz)) continue;
-    const d=Math.hypot(ox,oz); if(d>DREDGE_R) continue;
-    const i=idx(ix,iz);
-    const cut=DREDGE_DEPTH*(1-smoothstep(0,DREDGE_R,d));
-    vol += (H[i] - Math.max(H[i]-cut,-4.5)) * CS*CS;
-  }
-  return { vol, cost: Math.round(vol*COST_DREDGE) };
-}
-function applyDredge(cx,cz){
-  // You cannot dredge under your own town — the barges are in the way.
-  for(let oz=-4;oz<=4;oz++) for(let ox=-4;ox<=4;ox++){
-    const ix=cx+ox, iz=cz+oz; if(!inGrid(ix,iz)) continue;
-    if(Math.hypot(ox,oz)>DREDGE_R) continue;
-    if(occ[idx(ix,iz)]!==-1){ flash('Something is moored over that — the dredger can\'t get under it.', true); return false; }
-  }
-  const { cost } = dredgeCostAt(cx,cz);
-  if(cost<=0) return false;
-  if(cost>coin){ flash(`Not enough coin — that cut costs <b>${cost}</b>`, true); return false; }
-  for(let oz=-4;oz<=4;oz++) for(let ox=-4;ox<=4;ox++){
-    const ix=cx+ox, iz=cz+oz; if(!inGrid(ix,iz)) continue;
-    const d=Math.hypot(ox,oz); if(d>DREDGE_R) continue;
-    const i=idx(ix,iz);
-    H[i]=Math.max(H[i]-DREDGE_DEPTH*(1-smoothstep(0,DREDGE_R,d)), -4.5);
-  }
-  coin-=cost; return true;
-}
-
-// ═════════════════════════════════════════════════════════════════════ tools
-let tool='build', buildType='walkway', draftLine=null;
-let dragging=false, lastCell=null;
-
-function setTool(t){
-  if(t!=='line' && draftLine) draftLine=null;
-  tool=t;
-  for(const el of document.querySelectorAll('.tool')) el.classList.toggle('on', el.dataset.tool===t);
-  document.querySelector('#palette').classList.toggle('show', t==='build');
-  ghost.visible=false; brush.visible=false;
-  if(t==='build') flash('Found on the <b>pale shallows</b> — anything there stands on the bed. Heavy things need the channel, and must be lashed out to it.');
-  if(t==='dredge') flash('Drag to deepen. Dredge <b>new land off the road</b> when your town chokes the channel.');
-  if(t==='demolish') flash('Click a building to break it up — <b>full refund</b>. Work from the outside in.');
-  if(t==='look') flash('Hover to read the river.');
-  if(t==='line'){
-    draftLine={ stops:[], color:LINE_COLORS[lines.length%LINE_COLORS.length], boats:[] };
-    flash('Click your <b>Wharf</b>, then a village dock. <b>Enter</b> to run it.');
-  }
-}
-
-function wharfStops(){
-  return structures.filter(s=>s.key==='wharf').map(s=>({
-    name:'Wharf', isWharf:true,
-    dock:{ ix: s.x0 + (s.w>1?s.w:0), iz: s.z0 },   // berth just off the wharf's edge
-    _s:s }));
-}
-// A wharf's berth must itself be navigable water; find one that is.
-function wharfBerth(s){
-  const cands=[];
+function berthFor(s){
+  const need = SHIPS[s.ship].draft;
   for(let oz=-1;oz<=s.h;oz++) for(let ox=-1;ox<=s.w;ox++){
     const inside = ox>=0&&ox<s.w&&oz>=0&&oz<s.h; if(inside) continue;
     const ix=s.x0+ox, iz=s.z0+oz; if(!inGrid(ix,iz)) continue;
-    if(navigable(idx(ix,iz))) cands.push({ix,iz});
+    const i=idx(ix,iz);
+    if(occ[i]===-1 && depthAt(i) >= need) return {ix,iz};
   }
-  return cands[0] || null;
+  return null;
+}
+function edgeSpawn(draft){
+  const cands=[];
+  for(let k=0;k<N;k+=3){
+    for(const c of [{ix:k,iz:1},{ix:k,iz:N-2},{ix:1,iz:k},{ix:N-2,iz:k}])
+      if(inGrid(c.ix,c.iz) && depthAt(idx(c.ix,c.iz)) >= draft && occ[idx(c.ix,c.iz)]===-1) cands.push(c);
+  }
+  return cands.length ? cands[Math.floor(rnd()*cands.length)] : null;
+}
+function makeShip(dock){
+  const S=SHIPS[dock.ship];
+  const berth=berthFor(dock); if(!berth) return null;
+  const from=edgeSpawn(S.draft); if(!from) return null;
+  const path=findPath(from, berth, S.draft); if(!path) return null;
+  const g=new THREE.Group();
+  const hull=new THREE.Mesh(new THREE.BoxGeometry(S.len*0.42, 0.7, S.len),
+    new THREE.MeshStandardMaterial({ color:0x8d7a5c, roughness:0.8 }));
+  hull.position.y=0.3; hull.castShadow=true; g.add(hull);
+  const mast=new THREE.Mesh(new THREE.BoxGeometry(0.12, S.len*0.7, 0.12),
+    new THREE.MeshStandardMaterial({ color:0x5a4a36 }));
+  mast.position.y=0.65+S.len*0.35; g.add(mast);
+  const sail=new THREE.Mesh(new THREE.BoxGeometry(0.08, S.len*0.42, S.len*0.34),
+    new THREE.MeshStandardMaterial({ color:0xe8e0cc, roughness:0.9 }));
+  sail.position.set(0, 0.75+S.len*0.3, -S.len*0.06); sail.castShadow=true; g.add(sail);
+  shipGroup.add(g);
+  const pts = path.map(c=>new THREE.Vector3(wx(c.ix), WL, wz(c.iz)));
+  return { mesh:g, pts, seg:0, frac:0, dwell:0, phase:'in', dock, S };
+}
+function stepShip(sh, dt){
+  if(sh.dwell>0){
+    sh.dwell -= dt;
+    if(sh.dwell<=0){
+      coin += sh.S.cargo; landed++;
+      sh.phase='out'; sh.pts.reverse(); sh.seg=0; sh.frac=0;
+      refreshHUD();
+    }
+    return;
+  }
+  let rem = 4.4*dt, guard=0;
+  while(rem>0 && guard++<300){
+    if(sh.seg >= sh.pts.length-1){
+      if(sh.phase==='in'){ sh.dwell = 4; return; }
+      sh.done = true; return;
+    }
+    const a=sh.pts[sh.seg], b=sh.pts[sh.seg+1];
+    const len=a.distanceTo(b);
+    if(len<1e-4){ sh.seg++; continue; }
+    const need=(1-sh.frac)*len;
+    if(rem<need){ sh.frac += rem/len; rem=0; }
+    else { rem-=need; sh.seg++; sh.frac=0; }
+  }
+  const a=sh.pts[Math.min(sh.seg, sh.pts.length-1)], b=sh.pts[Math.min(sh.seg+1, sh.pts.length-1)];
+  _p.copy(a).lerp(b, sh.frac);
+  sh.mesh.position.set(_p.x, WL+0.1 + Math.sin(clock*1.6+sh.seg)*0.05*(1+swell*2), _p.z);
+  if(a.distanceToSquared(b)>1e-6) sh.mesh.rotation.y = Math.atan2(b.x-a.x, b.z-a.z);
+  sh.mesh.rotation.z = Math.sin(clock*1.3+sh.seg)*0.03*(1+swell*4);
 }
 
-function commitDraft(){
-  if(!draftLine || draftLine.stops.length<2){ flash('A line needs your Wharf and at least one village.', true); return; }
-  if(coin<COST_BOAT){ flash(`A ferry costs <b>${COST_BOAT}</b> coin.`, true); return; }
-  const l=draftLine; draftLine=null;
-  l.id=lines.length;
-  l.name = l.stops.map(s=>s.name.split(/[\s']/)[0]).join(' – ');
-  lines.push(l); coin-=COST_BOAT;
-  routeLine(l); l.boats.push(makeBoat(l));
-  renderLineList(); refreshHUD(); tickTutorial();
-  if(l.broken) flash(`Line drawn, but <span class="bad">${l.broken}</span>.`, true);
-  else flash(`<b>${l.name}</b> is running.`);
+// ═════════════════════════════════════════════════════════════════════ storms
+let stormT = 0, swell = 0, stormOn = false;
+function weatherPhase(){
+  const t = stormT % STORM_EVERY;
+  if(t > STORM_EVERY-STORM_LEN) return 'storm';
+  if(t > STORM_EVERY-STORM_LEN-18) return 'rising';
+  return 'fair';
 }
-function addBoat(l){
-  if(coin<COST_BOAT){ flash(`A ferry costs <b>${COST_BOAT}</b> coin.`, true); return; }
-  coin-=COST_BOAT;
-  const b=makeBoat(l);
-  if(l.pts) b.seg=Math.floor(l.pts.length*(l.boats.length/(l.boats.length+1)));
-  l.boats.push(b); renderLineList(); refreshHUD();
+function stepWeather(dt){
+  stormT += dt;
+  const ph = weatherPhase();
+  stormOn = ph==='storm';
+  const target = ph==='storm' ? 1 : ph==='rising' ? 0.35 : 0.06;
+  swell = lerp(swell, target, 1-Math.exp(-dt*0.6));
+  uSwell.value = swell;
+  if(!stormOn) return;
+  const S = SEASONS[seasonI].strength;
+  let lost=null;
+  for(const s of structures){
+    if(s.hardy) continue;
+    const e = structExposure(s);
+    if(e <= 0.02) continue;
+    // A fully exposed structure in an autumn blow loses ~0.028/s → a 22 s storm
+    // takes ~60% of it. Two unsheltered storms and it's gone.
+    s.integrity -= S * e * 0.028 * dt;
+    if(s.integrity <= 0){ lost = s; break; }
+  }
+  if(lost){
+    const orphansBefore = structures.length;
+    removeStruct(lost, null);
+    recomputeAnchors();
+    // Anything the sea cut loose from the town goes with it.
+    let adrift = structures.filter(x=>!x.anchored);
+    let n=0;
+    while(adrift.length){ for(const a of adrift){ removeStruct(a, null); n++; } recomputeAnchors();
+                          adrift = structures.filter(x=>!x.anchored); }
+    flash(`<span class="bad">The sea took your ${lost.name}</span>${n?` — and ${n} more went with it`:''}.`, true);
+  }
+}
+function repairAll(){
+  const bill = structures.reduce((a,s)=>a + (1-s.integrity)*s.cost*0.5, 0);
+  const cost = Math.round(bill);
+  if(cost<=0){ flash('Nothing needs mending.'); return; }
+  if(cost>coin){ flash(`Mending everything costs <b>${cost}</b> — you have ${Math.round(coin)}`, true); return; }
+  coin -= cost;
+  for(const s of structures) s.integrity = 1;
+  restaff(); refreshHUD();
+  flash(`Everything mended — <b>${cost}</b> coin.`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════ sim
+function step(dt){
+  clock += dt;
+  stepWeather(dt);
+  for(const s of structures){
+    if(!s.ship || !s.open) continue;
+    s.shipT += dt;
+    if(s.shipT >= SHIPS[s.ship].every){
+      s.shipT = 0;
+      const sh = makeShip(s);
+      if(sh) ships.push(sh);
+    }
+  }
+  for(const sh of ships) stepShip(sh, dt);
+  for(let i=ships.length-1;i>=0;i--) if(ships[i].done){ shipGroup.remove(ships[i].mesh); ships.splice(i,1); }
+}
+
+// ═════════════════════════════════════════════════════════════════════ tools
+let tool='build', buildType='pontoon';
+function setTool(t){
+  tool=t;
+  for(const el of document.querySelectorAll('.tool')) el.classList.toggle('on', el.dataset.tool===t);
+  $('#palette').classList.toggle('show', t==='build');
+  ghost.visible=false;
+  if(t==='build') flash('Found on the <b>pale shoal</b> — only there can a pile reach the bed.');
+  if(t==='demolish') flash('Click a building to break it up. Work from the outside in.');
+  if(t==='look') flash('Hover to read the water and the shelter.');
 }
 
 // ═══════════════════════════════════════════════════════════════════════ HUD
@@ -1068,26 +873,40 @@ function flash(msg,bad){
   h.style.borderColor = bad ? 'rgba(232,146,124,.5)' : 'var(--line)';
   hintT = clock + 4.5;
 }
+const DIRNAME = () => {
+  const [dx,dz]=windDir();
+  const a=Math.atan2(dx,-dz)*180/Math.PI;
+  const names=['N','NE','E','SE','S','SW','W','NW'];
+  return names[(Math.round(a/45)+8)%8];
+};
 function refreshHUD(){
   $('#coin').textContent = Math.round(coin).toLocaleString();
   $('#season').textContent = SEASONS[seasonI].name;
-  $('#fare').textContent = fare;
-  $('#staff').textContent = `${Math.min(residents,staffNeed)} / ${staffNeed}` + (residents>staffNeed?` (+${residents-staffNeed} idle)`:'');
-  const avg = villages.reduce((a,v)=>a+v.content,0)/villages.length;
-  $('#contentPct').textContent = Math.round(avg*100)+'%';
-  $('#contentFill').style.width = Math.max(2,avg*100)+'%';
-  // Fairway: worst detour across all running lines. This is the squeeze, numeric.
-  const run = lines.filter(l=>l.pts);
-  if(lines.some(l=>l.broken)){ $('#fair').innerHTML = '<span style="color:var(--bad)">blocked</span>'; }
-  else if(!run.length){ $('#fair').textContent = '—'; }
+  const ph = weatherPhase();
+  const w = $('#weather');
+  w.className = 'v ' + (ph==='storm'?'storm':ph==='rising'?'rising':'');
+  w.textContent = ph==='storm' ? `STORM from the ${DIRNAME()}`
+                : ph==='rising' ? `Rising · ${DIRNAME()}`
+                : `Fair · wind ${DIRNAME()}`;
+  $('#landed').textContent = landed;
+  $('#staff').textContent = `${Math.min(residents,staffNeed)} / ${staffNeed}` +
+    (residents>staffNeed?` (+${residents-staffNeed} idle)`:'');
+  const exposed = structures.filter(s=>!s.hardy);
+  if(!exposed.length) $('#worst').textContent = '—';
   else {
-    const worst = Math.max(...run.map(l=>l.len/l.baseLen));
-    const pct = Math.round((worst-1)*100);
-    $('#fair').innerHTML = pct>28 ? `<span style="color:var(--bad)">+${pct}% detour</span>`
-                         : pct>10 ? `<span style="color:#f0c886">+${pct}% detour</span>`
-                                  : `clear`;
+    const e = Math.max(...exposed.map(s=>structExposure(s)));
+    const pct = Math.round(e*100);
+    $('#worst').innerHTML = pct>65 ? `<span style="color:var(--bad)">${pct}% — wide open</span>`
+                          : pct>30 ? `<span style="color:var(--warn)">${pct}%</span>`
+                                   : `${pct}% — sheltered`;
   }
-  for(const b of document.querySelectorAll('.addBoat')) b.disabled = coin<COST_BOAT;
+  const hurt = structures.some(s=>s.integrity<0.999);
+  $('#repairBtn').classList.toggle('show', hurt);
+  if(hurt){
+    const bill=Math.round(structures.reduce((a,s)=>a+(1-s.integrity)*s.cost*0.5,0));
+    $('#repairBtn').textContent = `Repair everything — ${bill}`;
+  }
+  for(const b of document.querySelectorAll('.chip')) {}
 }
 function renderPalette(){
   const el=$('#palette'); el.innerHTML='';
@@ -1095,168 +914,122 @@ function renderPalette(){
     const T=TYPES[k];
     const b=document.createElement('button');
     b.className='chip'+(buildType===k?' on':'')+(coin<T.cost?' poor':'');
-    b.innerHTML=`<b>${T.name}</b><span>${T.cost} · draws ${T.draft.toFixed(2)} m</span>`;
+    const need = T.maxDepth ? `≤${T.maxDepth.toFixed(1)} m` : `${T.need.toFixed(2)} m`;
+    b.innerHTML=`<b>${T.name}</b><span>${T.cost} · ${need}</span>`;
     b.title=T.hint;
     b.onclick=()=>{ buildType=k; renderPalette(); flash(`<b>${T.name}</b> — ${T.hint}`); };
     el.appendChild(b);
   }
 }
-function renderLineList(){
-  const el=$('#lineList');
-  if(!lines.length){ el.innerHTML='<div id="noLines">No lines yet.</div>'; return; }
+function renderDocks(){
+  const el=$('#dockList');
+  const docks=structures.filter(s=>s.ship);
+  if(!docks.length){ el.innerHTML='<div id="noDocks">No docks yet.</div>'; return; }
   el.innerHTML='';
-  for(const l of lines){
+  for(const d of docks){
+    const e=structExposure(d);
     const row=document.createElement('div');
-    row.className='lineRow'+(l.broken?' broken':'');
-    row.innerHTML=`<span class="swatch" style="background:#${l.color.toString(16).padStart(6,'0')}"></span>
-      <span class="nm" title="${l.broken||l.name}">${l.name}</span>
-      <span class="st">${l.broken?'broken':l.boats.length+'×'}</span>`;
-    const btn=document.createElement('button');
-    btn.className='addBoat'; btn.textContent='+boat'; btn.disabled=coin<COST_BOAT;
-    btn.onclick=()=>addBoat(l);
-    row.appendChild(btn); el.appendChild(row);
+    row.className='dockRow'+(d.open?'':' shut');
+    row.innerHTML=`<span class="sw" style="background:#${d.color.toString(16).padStart(6,'0')}"></span>
+      <span class="nm">${d.name}<div class="bar"><i style="width:${Math.round(d.integrity*100)}%;
+        background:${d.integrity<0.5?'var(--bad)':'var(--gold)'}"></i></div></span>
+      <span class="st">${d.open?`${SHIPS[d.ship].cargo}c`:'no crew'}<br>${Math.round(e*100)}%</span>`;
+    el.appendChild(row);
   }
 }
 
 // ══════════════════════════════════════════════════════════════════ tutorial
-// Gated on real game state, never on "did you click the thing". Advances greedily
-// (while, not if) so a player who does three steps at once doesn't get walked
-// through stale instructions, and every step has a condition that a real action
-// satisfies — so it cannot soft-lock.
 const TUT = [
-  { t:'Found your town on the <b>pale shallows</b>, where a raft can stand on the riverbed. Take <b>Walkway</b> and click the pale water.',
+  { t:'Everything out here is deep except the <b>pale shoals</b>. Take a <b>Pontoon</b> and click one — a pile can still reach the bed there.',
     ok:()=>structures.length>0 },
-  { t:'Now reach for the <b>teal channel</b>. Lay walkways outward — out there nothing touches bottom, so each plank holds the next.',
-    ok:()=>structures.some(s=>depthAt(idx(s.x0,s.z0))>=DRAFT) },
-  { t:'Put a <b>Wharf</b> where the water runs deep. Your ferries live there.',
-    ok:()=>structures.some(s=>s.key==='wharf') },
-  { t:'Press <b>3</b>, click your Wharf, then a village dock, then <b>Enter</b>. Villagers will start coming to you.',
-    ok:()=>lines.length>0 && lines.some(l=>!l.broken) },
-  { t:'A <b>Raft Cottage</b> on the shallows houses residents — they\'re the staff your trades need.',
+  { t:'A <b>Raft Cottage</b> on the shoal gives you crew. Cottages are safe here; the shoal breaks the sea.',
     ok:()=>structures.some(s=>s.key==='cottage') },
-  { t:'Now a <b>Tea House</b>. It only floats in the channel — in your own boats\' way. Watch <b>Fairway</b> in the ledger as you grow.',
-    ok:()=>structures.some(s=>s.key==='teahouse' && s.open) },
-  { t:'That\'s the whole game: everything worth building sits in the road. Grow anyway — then buy boats, or <b>dredge</b> new deep water away from the channel. <b>Esc</b> for settings.',
+  { t:'Now walk pontoons <b>outward</b>, off the shoal. Past it nothing touches bottom, so each piece holds the next.',
+    ok:()=>structures.some(s=>depthAt(idx(s.x0,s.z0))>2.5) },
+  { t:'Place a <b>Jetty</b> where it\'s 2.5 m deep. Coasters will find you.',
+    ok:()=>structures.some(s=>s.key==='jetty') },
+  { t:'Bigger ships need deeper water — so the money is always further out than the shelter. Watch <b>Worst exposure</b> as you reach.',
+    ok:()=>structures.some(s=>s.key==='trader'||s.key==='berth') },
+  { t:'A storm is coming, from the season\'s quarter. Anything wide open will take it. A <b>Breakwater</b> founds on the bed to 4 m and blocks the swell — build your own lee.',
+    ok:()=>structures.some(s=>s.key==='breakwater') },
+  { t:'That\'s the whole sea: shelter and money point opposite ways. The wind turns with the year, so nowhere stays safe. <b>Esc</b> for settings.',
     ok:()=>false },
 ];
 let tutStep=0, tutOn=true;
 function tickTutorial(){
   if(!tutOn) return;
   let guard=0;
-  while(tutStep < TUT.length-1 && TUT[tutStep].ok() && guard++ < 20) tutStep++;
+  while(tutStep<TUT.length-1 && TUT[tutStep].ok() && guard++<20) tutStep++;
   renderTut();
 }
 function renderTut(){
-  const el=$('#tut');
-  el.classList.toggle('hide', !tutOn);
+  const el=$('#tut'); el.classList.toggle('hide', !tutOn);
   if(!tutOn) return;
   $('#tutBody').innerHTML = TUT[tutStep].t;
-  $('#tutDots').innerHTML = TUT.map((_,i)=>
-    `<i class="${i===tutStep?'on':i<tutStep?'done':''}"></i>`).join('');
+  $('#tutDots').innerHTML = TUT.map((_,i)=>`<i class="${i===tutStep?'on':i<tutStep?'done':''}"></i>`).join('');
 }
 
 // ══════════════════════════════════════════════════════════════════ settings
-const OPTS = { ts:1, shadows:1, trees:1 };
-const TS_PRESET = [ {b:1,s:0}, {b:0.13,s:5.2}, {b:0.08,s:8.5} ];
-const TREE_PRESET = [0, 0.5, 1];
+const OPTS={ ts:1, shadows:1 };
+const TS_PRESET=[{b:1,s:0},{b:0.13,s:5.2},{b:0.08,s:8.5}];
 function applyOpts(){
-  const p = TS_PRESET[OPTS.ts];
+  const p=TS_PRESET[OPTS.ts];
   for(const q of [tsH,tsV]){ q.uniforms.band.value=p.b; q.uniforms.strength.value=p.s; }
-  renderer.shadowMap.enabled = !!OPTS.shadows;
-  key.castShadow = !!OPTS.shadows;
-  scene.traverse(o=>{ if((o.isMesh || o.isInstancedMesh) && o.material) o.material.needsUpdate = true; });
-  scatterTrees();
-  localStorage.setItem('ferryfall.opts', JSON.stringify({...OPTS, tut:tutOn}));
+  renderer.shadowMap.enabled=!!OPTS.shadows; key.castShadow=!!OPTS.shadows;
+  scene.traverse(o=>{ if((o.isMesh||o.isInstancedMesh)&&o.material) o.material.needsUpdate=true; });
+  localStorage.setItem('ferryfall.opts', JSON.stringify({...OPTS, ex:showExposure, tut:tutOn}));
 }
 function seg(host, vals, get, set){
   const el=$(host); el.innerHTML='';
   vals.forEach((label,i)=>{
     const b=document.createElement('button');
-    b.textContent=label; b.className = get()===i ? 'on' : '';
+    b.textContent=label; b.className = get()===i?'on':'';
     b.onclick=()=>{ set(i); renderSettings(); applyOpts(); };
     el.appendChild(b);
   });
 }
 function renderSettings(){
-  seg('#segTs',  ['Off','Subtle','Strong'], ()=>OPTS.ts,      v=>OPTS.ts=v);
-  seg('#segSh',  ['Off','On'],              ()=>OPTS.shadows, v=>OPTS.shadows=v);
-  seg('#segTr',  ['None','Some','Many'],    ()=>OPTS.trees,   v=>OPTS.trees=v);
-  seg('#segTut', ['Hide','Show'],           ()=>tutOn?1:0,    v=>{ tutOn=!!v; renderTut(); });
+  seg('#segTs', ['Off','Subtle','Strong'], ()=>OPTS.ts, v=>OPTS.ts=v);
+  seg('#segSh', ['Off','On'], ()=>OPTS.shadows, v=>OPTS.shadows=v);
+  seg('#segEx', ['Off','On'], ()=>showExposure, v=>{ showExposure=v; paintSea(); });
+  seg('#segTut',['Hide','Show'], ()=>tutOn?1:0, v=>{ tutOn=!!v; renderTut(); });
 }
 function toggleSettings(force){
   const el=$('#settings');
-  const show = force !== undefined ? force : !el.classList.contains('show');
+  const show = force!==undefined ? force : !el.classList.contains('show');
   el.classList.toggle('show', show);
   if(show) renderSettings();
 }
 
 // ═════════════════════════════════════════════════════════════════════ saves
-const SLOTS = 3;
-let activeSlot = 0;
-const slotKey = i => 'ferryfall.slot'+i;
-
+const SLOTS=3; let activeSlot=0;
+const slotKey=i=>'ferryfall.slot'+i;
 function saveGame(slot){
   if(slot==null) return false;
-  // Dredging is the only thing that edits the bed, so store just the diff vs the
-  // generated H0 — a few hundred cells instead of all 14,400.
-  const dredge=[];
-  for(let i=0;i<N*N;i++) if(Math.abs(H[i]-H0[i]) > 1e-4) dredge.push([i, +H[i].toFixed(3)]);
-  const data={
-    v:1, seed, coin, clock, seasonI, totalVisitors,
-    dredge,
-    structs: structures.map(s=>[s.key, s.x0, s.z0]),
-    lines: lines.map(l=>({ stops: l.stops.map(s=>s.isWharf?{w:1}:{v:s.id}),
-                           boats:l.boats.length, color:l.color })),
-    villages: villages.map(v=>({ w:v.waiting.map(t=>+t.toFixed(1)), d:v.delivered,
-                                 c:+v.content.toFixed(3), rw:+(v.recentWait||0).toFixed(1),
-                                 st:+(v.spawnT||0).toFixed(2) })),
-    tut: tutStep, at: Date.now(),
-  };
+  const data={ v:3, seed, coin, clock, seasonI, landed, stormT,
+    structs: structures.map(s=>[s.key, s.x0, s.z0, +s.integrity.toFixed(3)]),
+    tut:tutStep, at:Date.now() };
   try{ localStorage.setItem(slotKey(slot), JSON.stringify(data)); return true; }
-  catch(e){ flash('Could not save — browser storage is full.', true); return false; }
+  catch(e){ flash('Could not save — storage full.', true); return false; }
 }
 function slotInfo(slot){
   const raw=localStorage.getItem(slotKey(slot)); if(!raw) return null;
-  try{
-    const d=JSON.parse(raw);
-    return { season:SEASONS[d.seasonI]?.name||'?', coin:d.coin,
-             structs:d.structs.length, lines:d.lines.length, at:d.at };
+  try{ const d=JSON.parse(raw);
+    if(d.v!==3) return null;                 // v0.2 saves are a different game
+    return { season:SEASONS[d.seasonI]?.name||'?', coin:d.coin, structs:d.structs.length, at:d.at };
   }catch(e){ return null; }
 }
 function loadGame(slot){
   const raw=localStorage.getItem(slotKey(slot)); if(!raw) return false;
   let d; try{ d=JSON.parse(raw); }catch(e){ return false; }
+  if(d.v!==3) return false;
   init(d.seed);
-  for(const [i,h] of d.dredge) H[i]=h;
-  seasonI = d.seasonI|0;
-  // Placed raw: these were legal when saved, and re-validating would re-charge
-  // for them and could refuse a mid-raft piece whose neighbours load later.
-  for(const [k,x,z] of d.structs) if(TYPES[k]) addStructRaw(k,x,z);
+  seasonI=d.seasonI|0;
+  for(const [k,x,z,g] of d.structs) if(TYPES[k]){ const s=addStructRaw(k,x,z); if(g!=null) s.integrity=g; }
   recomputeAnchors();
-  d.villages.forEach((s,i)=>{ const v=villages[i]; if(!v) return;
-    v.waiting=s.w||[]; v.delivered=s.d||0; v.content=s.c||0;
-    v.recentWait=s.rw||0; v.spawnT=s.st||0; });
-  for(const ls of d.lines||[]){
-    const stops=[];
-    for(const st of ls.stops){
-      if(st.w){
-        const wh=structures.find(x=>x.key==='wharf'); if(!wh) continue;
-        const b=wharfBerth(wh); if(!b) continue;
-        stops.push({ name:'Wharf', isWharf:true, dock:b, uid:wh.uid });
-      } else {
-        const v=villages.find(x=>x.id===st.v); if(v) stops.push(v);
-      }
-    }
-    if(stops.length<2) continue;
-    const l={ stops, color:ls.color, boats:[], id:lines.length };
-    l.name = stops.map(s=>s.name.split(/[\s']/)[0]).join(' – ');
-    lines.push(l); routeLine(l);
-    for(let k=0;k<(ls.boats||1);k++) l.boats.push(makeBoat(l));
-  }
-  coin = d.coin; clock = d.clock||0; totalVisitors = d.totalVisitors||0;
-  tutStep = d.tut||0;
-  activeSlot = slot;
-  restaff(); applySeason(); renderTut(); renderLineList(); renderPalette(); refreshHUD();
+  coin=d.coin; clock=d.clock||0; landed=d.landed||0; stormT=d.stormT||0; tutStep=d.tut||0;
+  activeSlot=slot;
+  applySeason(); restaff(); renderTut(); renderDocks(); renderPalette(); refreshHUD();
   return true;
 }
 function renderSlots(){
@@ -1266,20 +1039,17 @@ function renderSlots(){
     const b=document.createElement('button');
     b.className='slot'+(info?'':' empty');
     const when = info ? new Date(info.at).toLocaleString(undefined,
-      {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '';
-    b.innerHTML = `<span class="n">${i+1}</span><span class="meta">
+      {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+    b.innerHTML=`<span class="n">${i+1}</span><span class="meta">
       <span class="t">${info?`${info.season} · ${info.coin.toLocaleString()} coin`:'Empty berth'}</span>
-      ${info?`<span class="d">${info.structs} buildings · ${info.lines} line${info.lines===1?'':'s'} · ${when}</span>`:''}
-    </span>`;
+      ${info?`<span class="d">${info.structs} buildings · ${when}</span>`:''}</span>`;
     if(info){
       const del=document.createElement('button');
-      del.className='del'; del.textContent='×'; del.title='Delete this voyage';
+      del.className='del'; del.textContent='×';
       del.onclick=e=>{ e.stopPropagation(); localStorage.removeItem(slotKey(i)); renderSlots(); };
       b.appendChild(del);
       b.onclick=()=>{ if(loadGame(i)){ $('#card').classList.add('gone'); running=true; setTool('build'); } };
-    } else {
-      b.onclick=()=>startNew(i);
-    }
+    } else b.onclick=()=>startNew(i);
     el.appendChild(b);
   }
 }
@@ -1290,21 +1060,11 @@ function startNew(slot){
   $('#card').classList.add('gone'); running=true; setTool('build');
   saveGame(activeSlot);
 }
-function firstFreeSlot(){
-  for(let i=0;i<SLOTS;i++) if(!slotInfo(i)) return i;
-  return 0;   // all full → overwrite the first; the slot list is the escape hatch
-}
-// Autosave. Cheap (a diff + a few dozen structures), and a cozy game should never
-// punish you for closing the tab.
+function firstFreeSlot(){ for(let i=0;i<SLOTS;i++) if(!slotInfo(i)) return i; return 0; }
 setInterval(()=>{ if(running && activeSlot!=null) saveGame(activeSlot); }, 20000);
 
 // ═════════════════════════════════════════════════════════════════════ input
 const ray=new THREE.Raycaster(), ptr=new THREE.Vector2();
-const brush=new THREE.Mesh(new THREE.RingGeometry(DREDGE_R*CS-0.18, DREDGE_R*CS, 32),
-  new THREE.MeshBasicMaterial({ color:0xffc978, transparent:true, opacity:0.7,
-                                side:THREE.DoubleSide, toneMapped:false }));
-brush.rotation.x=-Math.PI/2; brush.visible=false; brush.renderOrder=4; scene.add(brush);
-
 const ghost=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
   new THREE.MeshBasicMaterial({ color:0x9fe0a0, transparent:true, opacity:0.42, toneMapped:false }));
 ghost.visible=false; ghost.renderOrder=4; scene.add(ghost);
@@ -1312,119 +1072,76 @@ ghost.visible=false; ghost.renderOrder=4; scene.add(ghost);
 function pick(e){
   ptr.x=(e.clientX/innerWidth)*2-1; ptr.y=-(e.clientY/innerHeight)*2+1;
   ray.setFromCamera(ptr,camera);
-  const hit=ray.intersectObject(terMesh,false)[0];
+  const hit=ray.intersectObject(bedMesh,false)[0];
   return hit?hit.point:null;
 }
-function ghostOrigin(pt, T){
-  return { x0: clamp(gx(pt.x) - Math.floor(T.w/2), 0, N-T.w),
-           z0: clamp(gz(pt.z) - Math.floor(T.h/2), 0, N-T.h) };
-}
+const ghostOrigin=(pt,T)=>({ x0:clamp(gx(pt.x)-Math.floor(T.w/2),0,N-T.w),
+                             z0:clamp(gz(pt.z)-Math.floor(T.h/2),0,N-T.h) });
 
 renderer.domElement.addEventListener('pointermove', e=>{
   const pt=pick(e);
-  brush.visible = tool==='dredge' && !!pt;
-  ghost.visible = tool==='build' && !!pt;
+  ghost.visible = (tool==='build'||tool==='demolish') && !!pt;
   if(!pt) return;
-  if(tool==='dredge'){
-    brush.position.set(pt.x, waterLevel+0.15, pt.z);
-    brush.material.color.setHex(dredgeCostAt(gx(pt.x),gz(pt.z)).cost>coin ? 0xe8927c : 0xffc978);
-    if(dragging) strokeAt(pt);
-  }
   if(tool==='build'){
     const T=TYPES[buildType], o=ghostOrigin(pt,T);
     ghost.scale.set(T.w*CS*0.95, Math.max(T.tall,0.5), T.h*CS*0.95);
-    ghost.position.set(wx(o.x0)+(T.w-1)*CS/2, waterLevel+Math.max(T.tall,0.5)/2, wz(o.z0)+(T.h-1)*CS/2);
-    const why=whyNot(buildType, o.x0, o.z0);
-    ghost.material.color.setHex(why ? 0xe8927c : 0x9fe0a0);
-    if(why) flash(why, true);
-    else flash(`<b>${T.name}</b> — ${T.cost} coin`);
+    ghost.position.set(wx(o.x0)+(T.w-1)*CS/2, WL+Math.max(T.tall,0.5)/2, wz(o.z0)+(T.h-1)*CS/2);
+    const why=whyNot(buildType,o.x0,o.z0);
+    ghost.material.color.setHex(why?0xe8927c:0x9fe0a0);
+    if(why) flash(why,true);
+    else flash(`<b>${T.name}</b> — ${T.cost} coin · exposure ${Math.round(exposureAt(o.x0,o.z0)*100)}%`);
   }
   if(tool==='demolish'){
-    const s=structAt(pt);
-    ghost.visible = !!s;
+    const s=structAt(pt); ghost.visible=!!s;
     if(s){
       ghost.scale.set(s.w*CS*1.02, Math.max(s.tall,0.6), s.h*CS*1.02);
-      ghost.position.set(wx(s.x0)+(s.w-1)*CS/2, waterLevel+Math.max(s.tall,0.6)/2, wz(s.z0)+(s.h-1)*CS/2);
+      ghost.position.set(wx(s.x0)+(s.w-1)*CS/2, WL+Math.max(s.tall,0.6)/2, wz(s.z0)+(s.h-1)*CS/2);
       ghost.material.color.setHex(0xe8927c);
-      flash(`Break up <b>${s.name}</b> — ${s.cost} coin back`);
+      flash(`Break up <b>${s.name}</b> — ${Math.round(s.cost*s.integrity)} coin back`);
     }
   }
   if(tool==='look'){
-    const i=idx(clamp(gx(pt.x),0,N-1), clamp(gz(pt.z),0,N-1));
-    const d=depthAt(i);
-    if(occ[i]!==-1) flash(`<b>${structures[occ[i]].name}</b>${structures[occ[i]].open?'':' <span class="bad">— closed, no staff</span>'}`);
-    else if(frozen[i]) flash('<b>Frozen.</b> Nothing runs or moors here until thaw.');
+    const ix=clamp(gx(pt.x),0,N-1), iz=clamp(gz(pt.z),0,N-1), i=idx(ix,iz);
+    const d=depthAt(i), e=Math.round(exposureAt(ix,iz)*100);
+    if(occ[i]!==-1){
+      const s=structures[occ[i]];
+      flash(`<b>${s.name}</b> · ${Math.round(s.integrity*100)}% sound · exposure ${Math.round(structExposure(s)*100)}%${s.open?'':' <span class="bad">— no crew</span>'}`);
+    }
     else if(d<=0) flash(`Dry land, ${(-d).toFixed(1)} m above the water.`);
-    else if(d<DRAFT) flash(`<span class="bad">${d.toFixed(2)} m</span> — a ferry draws <b>${DRAFT.toFixed(2)}</b>. Rafts float; boats don't pass.`);
-    else flash(`<b>${d.toFixed(2)} m</b> — navigable, and deep enough for anything drawing under ${d.toFixed(2)} m.`);
+    else if(d<=ANCHOR_MAX) flash(`<b>${d.toFixed(2)} m</b> — shoal. A pile reaches bottom here. Exposure ${e}%.`);
+    else flash(`<b>${d.toFixed(1)} m</b> — nothing touches bottom. Exposure <b>${e}%</b>.`);
   }
 });
-
-function strokeAt(pt){
-  const cx=gx(pt.x), cz=gz(pt.z);
-  if(lastCell && Math.hypot(cx-lastCell[0], cz-lastCell[1])<1.1) return;
-  lastCell=[cx,cz];
-  if(applyDredge(cx,cz)){ paintWater(); paintTerrain(); refreshHUD(); }
-}
-
 let downAt=null;
-renderer.domElement.addEventListener('pointerdown', e=>{
-  if(e.button!==0) return;
-  downAt={x:e.clientX,y:e.clientY};
-  if(tool==='dredge'){ dragging=true; lastCell=null; const p=pick(e); if(p) strokeAt(p); }
-});
+renderer.domElement.addEventListener('pointerdown', e=>{ if(e.button===0) downAt={x:e.clientX,y:e.clientY}; });
 addEventListener('pointerup', e=>{
-  if(e.button!==0) return;
-  if(dragging){ dragging=false; rerouteAll(); refreshHUD(); }
-  if(!downAt) return;
+  if(e.button!==0 || !downAt) return;
   const moved=Math.hypot(e.clientX-downAt.x, e.clientY-downAt.y); downAt=null;
-  if(moved>5) return;                       // camera drag, not a click
+  if(moved>5) return;
   const pt=pick(e); if(!pt) return;
-
-  if(tool==='build'){
-    const T=TYPES[buildType], o=ghostOrigin(pt,T);
-    place(buildType, o.x0, o.z0);
-  }
-  if(tool==='demolish'){
-    const s=structAt(pt);
-    if(s) demolish(s); else flash('Click one of your own buildings.');
-  }
-  if(tool==='line'){
-    // nearest wharf berth or village dock
-    let best=null, bd=6;
-    for(const w of structures.filter(s=>s.key==='wharf')){
-      const berth=wharfBerth(w); if(!berth) continue;
-      const d=Math.hypot(wx(berth.ix)-pt.x, wz(berth.iz)-pt.z);
-      if(d<bd){ bd=d; best={ name:'Wharf', isWharf:true, dock:berth, uid:w.uid }; }
-    }
-    for(const v of villages){
-      const d=Math.hypot(wx(v.dock.ix)-pt.x, wz(v.dock.iz)-pt.z);
-      if(d<bd){ bd=d; best=v; }
-    }
-    if(!best){ flash('Click your <b>Wharf</b> or a village dock.', true); return; }
-    if(draftLine.stops[draftLine.stops.length-1]===best){ flash('Already the last call.'); return; }
-    draftLine.stops.push(best);
-    flash(`Line: ${draftLine.stops.map(s=>s.name).join(' → ')} · <b>Enter</b> to run`);
-  }
+  if(tool==='build'){ const T=TYPES[buildType], o=ghostOrigin(pt,T); place(buildType,o.x0,o.z0); }
+  if(tool==='demolish'){ const s=structAt(pt); if(s) demolish(s); else flash('Click one of your own buildings.'); }
 });
-
 addEventListener('keydown', e=>{
   if(e.key==='1') setTool('build');
-  if(e.key==='2') setTool('dredge');
-  if(e.key==='3') setTool('line');
-  if(e.key==='4') setTool('demolish');
-  if(e.key==='5') setTool('look');
-  if(e.key==='Enter' && draftLine) commitDraft();
-  if(e.key==='Escape'){
-    if(draftLine){ draftLine=null; flash('Line cancelled.'); }
-    else toggleSettings();
-  }
-  if(e.key==='s'||e.key==='S'){ seasonI=(seasonI+1)%SEASONS.length; applySeason();
-    flash(`<b>${SEASONS[seasonI].name}.</b> ${['The river sits easy.','The headwaters are locked in ice.','Meltwater — everything floats.','Drought. The river shows its bones.'][seasonI]}`); }
-  const n=BUILD_ORDER.indexOf(e.key==='q'?'walkway':e.key==='w'?'cottage':e.key==='e'?'wharf':e.key==='r'?'teahouse':e.key==='t'?'bathhouse':'');
-  if(n>=0){ buildType=BUILD_ORDER[n]; setTool('build'); renderPalette(); }
+  if(e.key==='2') setTool('demolish');
+  if(e.key==='3') setTool('look');
+  if(e.key==='Escape') toggleSettings();
+  if(e.key==='s'||e.key==='S'){ seasonI=(seasonI+1)%4; applySeason();
+    flash(`<b>${SEASONS[seasonI].name}</b> — wind swings to the <b>${DIRNAME()}</b>. Your lee just moved.`); }
+  const keys={q:'pontoon',w:'cottage',e:'breakwater',r:'jetty',t:'trader',y:'berth'};
+  if(keys[e.key]){ buildType=keys[e.key]; setTool('build'); renderPalette(); }
 });
 for(const el of document.querySelectorAll('.tool')) el.onclick=()=>setTool(el.dataset.tool);
+$('#repairBtn').onclick = repairAll;
+
+function applySeason(){
+  const S=SEASONS[seasonI];
+  key.color.setHex(S.tint);
+  scene.fog.color.setHex(S.fog); scene.background.setHex(S.fog);
+  paintSea();          // the wind moved → the shelter map moved
+  refreshHUD(); renderDocks();
+}
 
 // ══════════════════════════════════════════════════════════════ post / render
 const TiltShift={
@@ -1449,9 +1166,8 @@ const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
 const tsH=new ShaderPass(TiltShift); composer.addPass(tsH);
 const tsV=new ShaderPass(TiltShift); composer.addPass(tsV);
-// MANDATORY. A raw ShaderPass writes linear straight to the sRGB canvas: no tone
-// map, no encode → the whole game renders gamma-crushed to near-black and it
-// looks exactly like bad lighting. See README.
+// MANDATORY — a raw ShaderPass writes linear straight to the sRGB canvas, no tone
+// map, no encode → the whole game renders gamma-crushed to near-black. See README.
 composer.addPass(new OutputPass());
 
 let lastW=-1,lastH=-1;
@@ -1465,16 +1181,20 @@ function resize(){
 }
 addEventListener('resize', resize);
 
-let last=performance.now();
+let last=performance.now(), hudT=0;
 function frame(){
   const now=performance.now(), dt=Math.min((now-last)/1000, 0.05); last=now;
   resize(); uTime.value=now/1000;
-  if(running) step(dt);
+  if(running){
+    step(dt);
+    hudT += dt;
+    if(hudT > 0.5){ hudT=0; refreshHUD(); renderDocks(); }   // fetch is a raymarch; don't do it every frame
+  }
   if(hintT && clock>hintT){ $('#hint').classList.remove('show'); hintT=0; }
   controls.update(); composer.render();
   requestAnimationFrame(guarded);
 }
-// Preview panels can report hidden and starve RAF — watchdog keeps it moving.
+// Preview panels can report hidden and starve RAF — watchdog keeps the sea moving.
 let lastFrame=performance.now();
 function guarded(){ lastFrame=performance.now(); frame(); }
 requestAnimationFrame(guarded);
@@ -1482,102 +1202,67 @@ setInterval(()=>{ if(performance.now()-lastFrame>400) guarded(); }, 250);
 
 // ════════════════════════════════════════════════════════════════════════ init
 function init(s){
-  seed=newValley(s);
-  lines.length=0; structures.length=0; uidNext=1;
-  lineGroup.clear(); boatGroup.clear(); structGroup.clear();
-  coin=START_COIN; clock=0; totalVisitors=0; seasonI=0;
-  scatterTrees(); buildVillageVisuals();
+  seed=newSea(s);
+  structures.length=0; ships.length=0; uidNext=1;
+  structGroup.clear(); shipGroup.clear();
+  coin=START_COIN; clock=0; landed=0; stormT=0; swell=0; seasonI=0;
+  paintBed(); paintSea();
   restaff(); applySeason();
-  renderPalette(); renderLineList(); refreshHUD();
+  renderPalette(); renderDocks(); refreshHUD();
 }
-
-// restore prefs before first paint so the title screen already looks right
 try{
   const o=JSON.parse(localStorage.getItem('ferryfall.opts')||'{}');
   if(o.ts!=null) OPTS.ts=o.ts; if(o.shadows!=null) OPTS.shadows=o.shadows;
-  if(o.trees!=null) OPTS.trees=o.trees; if(o.tut!=null) tutOn=!!o.tut;
+  if(o.ex!=null) showExposure=o.ex; if(o.tut!=null) tutOn=!!o.tut;
 }catch(e){}
-
-init(3);
+init(5);
 applyOpts(); renderTut(); renderSlots();
 
-$('#go').onclick = ()=>startNew(firstFreeSlot());
-$('#tutSkip').onclick = ()=>{ tutOn=false; renderTut(); applyOpts(); };
-$('#setClose').onclick = ()=>toggleSettings(false);
-$('#setSave').onclick = ()=>{ if(saveGame(activeSlot)){ toggleSettings(false); flash('Voyage saved.'); } };
-$('#setNewRiver').onclick = ()=>{
-  if(!confirm('Start a brand new river? This voyage will be lost.')) return;
-  init(Math.floor(Math.random()*100000)); tutStep=0; renderTut();
-  saveGame(activeSlot); toggleSettings(false);
-};
-$('#setQuit').onclick = ()=>{
-  saveGame(activeSlot);
-  running=false; toggleSettings(false);
-  renderSlots(); $('#card').classList.remove('gone');
-};
+$('#go').onclick=()=>startNew(firstFreeSlot());
+$('#tutSkip').onclick=()=>{ tutOn=false; renderTut(); applyOpts(); };
+$('#setClose').onclick=()=>toggleSettings(false);
+$('#setSave').onclick=()=>{ if(saveGame(activeSlot)){ toggleSettings(false); flash('Saved.'); } };
+$('#setNewSea').onclick=()=>{ if(!confirm('Start a brand new sea? This harbour will be lost.')) return;
+  init(Math.floor(Math.random()*100000)); tutStep=0; renderTut(); saveGame(activeSlot); toggleSettings(false); };
+$('#setQuit').onclick=()=>{ saveGame(activeSlot); running=false; toggleSettings(false);
+  renderSlots(); $('#card').classList.remove('gone'); };
 
 // ═══════════════════════════════════════════════════ verification seam __dbg
 window.__dbg={
   THREE, scene, camera, renderer,
-  get villages(){ return villages; }, get structures(){ return structures; },
-  get lines(){ return lines; }, get seed(){ return seed; },
+  get structures(){ return structures; }, get banks(){ return banks; },
+  get ships(){ return ships; }, get seed(){ return seed; },
   reseed:s=>{ init(s); return seed; },
   season:i=>{ seasonI=((i%4)+4)%4; applySeason(); return SEASONS[seasonI].name; },
   coin:()=>coin, grant:n=>{ coin+=n; refreshHUD(); renderPalette(); return coin; },
   depth:(ix,iz)=>depthAt(idx(ix,iz)),
-  nav:(ix,iz)=>navigable(idx(ix,iz)),
-  occAt:(ix,iz)=>occ[idx(ix,iz)],
+  exposure:(ix,iz)=>exposureAt(ix,iz),
+  fetch:(ix,iz)=>fetchAt(ix,iz),
   standsAlone:(t,x,z)=>selfAnchors(x,z,TYPES[t]),
   why:(t,x,z)=>whyNot(t,x,z),
-  demolishAt:(ix,iz)=>{ const o=occ[idx(ix,iz)];
-    if(o===-1) return {ok:false, why:'nothing there'};
-    const n=structures.length, name=structures[o].name;
-    const r=demolish(structures[o]);
-    return { ok:r, name, removed:n-structures.length,
-             why:r?null:'would set structures adrift' }; },
-  anchored:()=>structures.map(s=>`${s.name}@${s.x0},${s.z0}:${s.anchored}`),
-  save:(s)=>saveGame(s ?? activeSlot),
-  load:(s)=>loadGame(s ?? activeSlot),
+  place:(t,x,z)=>{ const s=place(t,x,z); return s?{ok:true,name:s.name}:{ok:false,why:whyNot(t,x,z)}; },
+  demolishAt:(ix,iz)=>{ const o=occ[idx(ix,iz)]; if(o===-1) return {ok:false,why:'nothing there'};
+    const n=structures.length, name=structures[o].name, r=demolish(structures[o]);
+    return { ok:r, name, removed:n-structures.length }; },
+  structExposure:(ix,iz)=>{ const o=occ[idx(ix,iz)]; return o===-1?null:structExposure(structures[o]); },
+  storm:(on)=>{ stormT = on ? STORM_EVERY-STORM_LEN+0.1 : 0; return weatherPhase(); },
+  weather:()=>weatherPhase(),
+  repair:()=>repairAll(),
+  sim:(secs,dt)=>{ dt=dt||1/30; const n=Math.round(secs/dt);
+                   for(let k=0;k<n;k++) step(dt); refreshHUD(); renderDocks(); return __dbg.state(); },
+  state:()=>({ coin:Math.round(coin), clock:+clock.toFixed(1), landed, weather:weatherPhase(),
+    season:SEASONS[seasonI].name, wind:DIRNAME(), residents, staffNeed, ships:ships.length,
+    structures: structures.map(s=>({ name:s.name, at:[s.x0,s.z0], open:s.open,
+      integrity:+s.integrity.toFixed(2), exposure:+structExposure(s).toFixed(2) })) }),
+  save:s=>saveGame(s ?? activeSlot), load:s=>loadGame(s ?? activeSlot),
   slots:()=>[0,1,2].map(i=>slotInfo(i)),
   wipe:()=>{ for(let i=0;i<3;i++) localStorage.removeItem('ferryfall.slot'+i); return 'wiped'; },
   tut:()=>({ on:tutOn, step:tutStep, text:TUT[tutStep]?.t.replace(/<[^>]+>/g,'') }),
-  opts:()=>OPTS,
-  settings:(v)=>{ toggleSettings(v); return document.querySelector('#settings').classList.contains('show'); },
-  place:(t,x,z)=>{ const s=place(t,x,z); return s?{ok:true,name:s.name}:{ok:false,why:whyNot(t,x,z)}; },
-  wharfBerth:()=>{ const w=structures.find(s=>s.key==='wharf'); return w?wharfBerth(w):null; },
-  line:(villageIds)=>{
-    const w=structures.find(s=>s.key==='wharf');
-    if(!w) return {broken:'no wharf'};
-    const berth=wharfBerth(w); if(!berth) return {broken:'wharf has no navigable berth'};
-    draftLine={ stops:[{name:'Wharf', isWharf:true, dock:berth, uid:w.uid}],
-                color:LINE_COLORS[lines.length%LINE_COLORS.length], boats:[] };
-    for(const id of villageIds) draftLine.stops.push(villages.find(v=>v.id===id));
-    commitDraft();
-    const l=lines[lines.length-1];
-    return l?{name:l.name, broken:l.broken, len:Math.round(l.len||0),
-              detour:l.baseLen?+(l.len/l.baseLen).toFixed(2):null}:{broken:'not committed'};
-  },
-  dredgeLine:(x0,z0,x1,z1,steps)=>{
-    steps=steps||24; const c0=coin; let refused=0;
-    for(let k=0;k<=steps;k++){ const t=k/steps;
-      if(!applyDredge(Math.round(lerp(x0,x1,t)), Math.round(lerp(z0,z1,t)))) refused++; }
-    paintWater(); paintTerrain(); rerouteAll(); refreshHUD();
-    return { spent:c0-coin, refused, coin };
-  },
-  sim:(secs,dt)=>{ dt=dt||1/30; const n=Math.round(secs/dt);
-                   for(let k=0;k<n;k++) step(dt); refreshHUD(); return __dbg.state(); },
-  state:()=>({
-    coin:Math.round(coin), clock:+clock.toFixed(1), visitors:totalVisitors,
-    fare, residents, staffNeed, season:SEASONS[seasonI].name,
-    structures: structures.map(s=>({name:s.name, at:[s.x0,s.z0], open:s.open})),
-    villages: villages.map(v=>({name:v.name, waiting:v.waiting.length,
-      delivered:v.delivered, content:+v.content.toFixed(2)})),
-    lines: lines.map(l=>({name:l.name, broken:l.broken, boats:l.boats.length,
-      len:Math.round(l.len||0), detour:l.baseLen?+(l.len/l.baseLen).toFixed(2):null})),
-  }),
+  opts:()=>({...OPTS, exposure:showExposure}),
+  settings:v=>{ toggleSettings(v); return $('#settings').classList.contains('show'); },
   start:()=>{ running=true; $('#card').classList.add('gone'); },
   stop:()=>{ running=false; },
-  cam:(x,y,z,tx,ty,tz)=>{ camera.position.set(x,y,z); controls.target.set(tx||0,ty||0,tz||4); controls.update(); },
+  cam:(x,y,z,tx,ty,tz)=>{ camera.position.set(x,y,z); controls.target.set(tx||0,ty||0,tz||0); controls.update(); },
   ts:(f,b,s)=>{ for(const p of [tsH,tsV]){ p.uniforms.focus.value=f; p.uniforms.band.value=b; p.uniforms.strength.value=s; } },
   shot:q=>{ composer.render(); return renderer.domElement.toDataURL('image/jpeg', q||0.82); },
 };

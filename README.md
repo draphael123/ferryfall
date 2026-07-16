@@ -9,21 +9,25 @@ even on success — ignore it and read the output.
 
 ## Controls
 
-`1` Build · `2` Dredge · `3` Line · `4` Break up · `5` Look · `S` season ·
-`Esc` settings · `Enter` commit a line
+`1` Build · `2` Break up · `3` Look · `S` turn the season · `Esc` settings
+Build hotkeys: `Q` pontoon · `W` cottage · `E` breakwater · `R` jetty ·
+`T` trader dock · `Y` deep berth
 
-Break up refunds in full, and refuses any cut that would set the rest of the raft
-adrift — so you disassemble outside-in. Shelf pieces self-anchor and are always
-freely removable; only chains out over deep water are load-bearing.
+Break up refuses any cut that would set the rest adrift — you disassemble
+outside-in. Shoal pieces reach the bed and are always freely removable; only
+chains out over deep water are load-bearing.
 
-Saves: 3 slots on the title screen, 20 s autosave. The dredged bed is stored as a
-diff against the generated one (dredging is the only thing that edits it), so a
-save is a few hundred cells rather than 14,400 floats.
+Saves: 3 slots on the title screen, 20 s autosave. Save `v` is `3`; v0.2 (river)
+saves are rejected rather than loaded into a different game.
 
 A cozy city-builder where the city is a river and everything arrives by boat.
 Single-file `index.html`, Three.js via CDN, **port 5774** (`launch.json` entry `ferryfall`).
 
-## Pillars (locked by interview 2026-07-16 — don't drift)
+> **v0.3 is the OPEN OCEAN game — see `DESIGN.md`.** Everything below this line
+> about rivers, creeks, channels, fairways, ferry lines and villages is **v0.1/v0.2
+> history**, kept only for the render/balance traps, which all still apply.
+
+## Pillars (v0.1 — HISTORICAL, superseded twice)
 
 1. **3D tilt-shift**, Three.js. Cozy diorama, not a naturalistic landscape.
 2. **v0 proves routing + boats.** Seasons are a manual `S` toggle, not a clock.
