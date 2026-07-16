@@ -253,6 +253,7 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   <div class="srow"><span class="lbl">Tilt-shift</span><span class="seg" id="segTs"></span></div>
   <div class="srow"><span class="lbl">Shadows</span><span class="seg" id="segSh"></span></div>
   <div class="srow"><span class="lbl">Sound</span><span class="seg" id="segSnd"></span></div>
+  <div class="srow"><span class="lbl">Music</span><span class="seg" id="segMus"></span></div>
   <div class="srow"><span class="lbl">Show exposure</span><span class="seg" id="segEx"></span></div>
   <div class="srow"><span class="lbl">Tutorial</span><span class="seg" id="segTut"></span></div>
   <button class="wide" id="setSave">Save now</button>
@@ -1935,6 +1936,8 @@ function renderSettings(){
   seg('#segSh', ['Off','On'], ()=>OPTS.shadows, v=>OPTS.shadows=v);
   seg('#segSnd',['Off','Quiet','Full'], ()=>audioOn ? (audioVol>0.45?2:1) : 0,
       v=>{ audioVol = v===2 ? 0.75 : 0.35; setAudio(v>0); });
+  seg('#segMus',['Off','On'], ()=>musOn?1:0, v=>{ musOn=!!v;
+      if(gMus && AC) gMus.gain.setTargetAtTime(musOn?0.5:0, AC.currentTime, 0.3); });
   seg('#segEx', ['Off','On'], ()=>showExposure, v=>{ showExposure=v; paintSea(); });
   seg('#segTut',['Hide','Show'], ()=>tutOn?1:0, v=>{ tutOn=!!v; renderTut(); });
 }
@@ -1995,6 +1998,9 @@ function initAudio(){
   const fRain = AC.createBiquadFilter(); fRain.type='highpass'; fRain.frequency.value=2600;
   gRain = AC.createGain(); gRain.gain.value=0;
   src().connect(fRain); fRain.connect(gRain); gRain.connect(gMaster);
+
+  // MUSIC bus — its own gain so the storm can duck it without touching the sea.
+  gMus = AC.createGain(); gMus.gain.value=0.5; gMus.connect(gMaster);
 }
 function updateAudio(){
   if(!AC || AC.state==='suspended') return;
@@ -2008,6 +2014,56 @@ function updateAudio(){
   gRain.gain.setTargetAtTime(m>0.15 ? (m-0.15)*0.10 : 0, t, k);
   lfoGain.gain.setTargetAtTime(0.04 + m*0.10, t, k);
 }
+// ── generative score ────────────────────────────────────────────────────────
+// Composed at runtime, in Aeolian — the natural minor is the sound of cold water
+// and it's why every sea song ever written lives there. Four chords, eight bars
+// each, with a sparse melody picking notes out of the same scale. The one thing a
+// recorded loop cannot do: it THINS as the storm rises, so the wind takes the
+// music's place and hands it back when the sky clears. The score is the weather.
+const SCALE = [0, 2, 3, 5, 7, 8, 10];              // aeolian degrees
+const PROG  = [0, 5, 3, 7];                        // i – VI – IV – v, endlessly
+const ROOTS = [55.00, 49.00, 43.65, 58.27];        // one per season: A, G, F, Bb
+let musOn=true, chordI=0, musT=0, melT=0, gMus=null;
+const midi = n => ROOTS[seasonI] * Math.pow(2, n/12);
+function voice(freq, dur, gain, type){
+  if(!AC || !gMus) return;
+  const t=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain(), f=AC.createBiquadFilter();
+  o.type=type||'triangle'; o.frequency.value=freq;
+  f.type='lowpass'; f.frequency.value=1200; f.Q.value=0.5;
+  // long attack/release — anything percussive fights the sea instead of joining it
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t+dur*0.35);
+  g.gain.linearRampToValueAtTime(0, t+dur);
+  o.connect(f); f.connect(g); g.connect(gMus);
+  o.start(t); o.stop(t+dur+0.1);
+}
+function stepMusic(dt){
+  if(!AC || !gMus || !musOn) return;
+  // duck hard under weather — at full blow the music is nearly gone and you are
+  // alone with the wind, which is the whole point of having a storm
+  gMus.gain.setTargetAtTime(0.5 * (1 - uStorm.value*0.88), AC.currentTime, 0.6);
+  musT -= dt;
+  if(musT <= 0){
+    musT = 8.5;
+    const deg = PROG[chordI % PROG.length];
+    chordI++;
+    for(const off of [0, 2, 4]){                    // triad off the scale
+      const d = SCALE[(deg+off) % 7] + (deg+off >= 7 ? 12 : 0);
+      voice(midi(d), 9.5, 0.05, 'triangle');
+    }
+    voice(midi(SCALE[deg] - 12), 9.5, 0.04, 'sine'); // a root an octave down
+  }
+  melT -= dt;
+  if(melT <= 0){
+    melT = 5 + Math.random()*8;                     // sparse, never a tune to hum
+    if(Math.random() < 0.65){
+      const d = SCALE[Math.floor(Math.random()*SCALE.length)] + 12;
+      voice(midi(d), 2.6 + Math.random()*2, 0.028, 'sine');
+    }
+  }
+}
+
 // A ship tying up is the whole point of the game — give it a sound. Two notes,
 // wooden and soft, so 20 landings an hour never grates.
 function chime(freq, gain, dur){
@@ -2576,6 +2632,8 @@ function frame(){
   updateSmoke(dt);
   updateCrew(dt);
   updateAudio();
+  // real time, not sim time — music must not speed up at 4×
+  if(running) stepMusic(dt);
   if(running){
     simAcc += dt * SPEEDS[speed];
     let guard = 0;
@@ -2679,6 +2737,8 @@ window.__dbg={
               for(const n of NEEDS) o[n.key]=+cover[n.key].toFixed(2);
               o._gate=+needGate().toFixed(2); o._worst=worstNeed().key; return o; },
   speed:(i)=>{ if(i!=null) setSpeed(i); return { speed, mult:SPEEDS[speed] }; },
+  music:()=>({ on:musOn, bus: gMus ? +gMus.gain.value.toFixed(3) : null,
+               chord: chordI, root: ROOTS[seasonI], season: SEASONS[seasonI].name }),
   audio:()=>({ ctx: AC ? AC.state : 'not created', on:audioOn, vol:audioVol,
                wind: gWind ? +gWind.gain.value.toFixed(3) : null,
                surf: gSurf ? +gSurf.gain.value.toFixed(3) : null,
