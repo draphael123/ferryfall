@@ -35,6 +35,15 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   .sep{height:1px;background:var(--line);margin:7px 0}
   #weather.storm{color:var(--bad);font-weight:600}
   #weather.rising{color:var(--warn)}
+  /* The ledger reported six facts and set no goal. This is the line that always
+     answers "so what am I doing?" — driven off real state, so it can't go stale. */
+  #nextRow{display:flex;flex-direction:column;gap:3px;padding:2px 0}
+  .nlabel{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;opacity:.42}
+  #next{font-size:13px;line-height:1.35;color:var(--gold)}
+  #next.calm{color:var(--text);opacity:.75}
+  #next.warn{color:var(--warn)}
+  #next.bad{color:var(--bad)}
+
   #repairBtn{width:100%;margin-top:8px;background:transparent;border:1px solid rgba(255,255,255,.16);
     color:var(--text);border-radius:6px;padding:6px;font:inherit;font-size:11.5px;cursor:pointer;
     pointer-events:auto;display:none}
@@ -66,7 +75,11 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   .dockRow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .dockRow .st{font-size:10px;opacity:.5;font-variant-numeric:tabular-nums}
   .dockRow.shut .nm{color:var(--bad)}
-  #noDocks{font-size:12px;opacity:.4;font-style:italic;padding:3px}
+  #noDocks,#noComms{font-size:12px;opacity:.4;font-style:italic;padding:3px}
+  .commRow{display:flex;align-items:flex-start;gap:8px;padding:4px 5px;border-radius:5px;font-size:12.5px;
+    border-left:2px solid rgba(255,201,120,.45);margin-bottom:3px;background:rgba(255,201,120,.05)}
+  .commRow .ct{flex:1;line-height:1.3}
+  .commRow .cp{color:var(--gold);font-variant-numeric:tabular-nums;font-size:11.5px;flex:none}
   .bar{height:3px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:3px}
   .bar i{display:block;height:100%;background:var(--gold)}
 
@@ -152,11 +165,15 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   <div class="row"><span class="k">Ships landed</span><span class="v" id="landed">0</span></div>
   <div class="row"><span class="k">Crew</span><span class="v" id="staff">0 / 0</span></div>
   <div class="row"><span class="k">Worst exposure</span><span class="v" id="worst">—</span></div>
+  <div class="sep"></div>
+  <div id="nextRow"><span class="nlabel">Next</span><span id="next">—</span></div>
   <button id="repairBtn">Repair everything</button>
 </div>
 
 <div class="hud panel" id="ships">
-  <h3>Your docks</h3>
+  <h3>Commissions</h3>
+  <div id="commList"></div>
+  <h3 style="margin-top:11px">Your docks</h3>
   <div id="dockList"><div id="noDocks">No docks yet.</div></div>
 </div>
 
@@ -803,7 +820,8 @@ function place(k, x0, z0){
   const s=addStructRaw(k,x0,z0);
   coin -= s.cost;
   if(s.blocks) paintSea();            // a breakwater rewrites the shelter map
-  restaff(); refreshHUD(); renderPalette(); renderDocks(); tickTutorial();
+  if(s.key==='cottage') rebuildSmoke();
+  restaff(); refreshHUD(); renderPalette(); renderDocks(); tickTutorial(); checkComms();
   return s;
 }
 function rebuildOcc(){
@@ -829,6 +847,7 @@ function removeStruct(s, refund){
   if(refund != null) coin += refund;
   structGroup.remove(s.mesh);
   if(s.blocks) paintSea();
+  if(s.key==='cottage') rebuildSmoke();
   restaff(); refreshHUD(); renderPalette(); renderDocks();
   return true;
 }
@@ -932,6 +951,14 @@ function addDetail(s, g, cw, ch){
       c.position.set((r()-0.5)*cw*0.55, 0.36, (r()-0.5)*ch*0.55);
       c.rotation.y=r()*0.8; c.castShadow=true; g.add(c);
     }
+    // a lantern on every dock — and it's the only warm thing left in a storm,
+    // which is exactly when you want to see your harbour still standing
+    const lan=new THREE.Mesh(new THREE.SphereGeometry(0.17,8,6),
+      new THREE.MeshBasicMaterial({ color:0xffb347, toneMapped:false }));
+    lan.position.set(-cw*0.4, 1.15, -ch*0.4); g.add(lan);
+    const pl=new THREE.PointLight(0xffa838, 4.5, 11, 2);
+    pl.position.copy(lan.position); g.add(pl);
+    s.lamp = pl;
     if(s.key!=='jetty'){       // a crane on the bigger berths
       const mast=post(cw*0.22, -ch*0.22, 2.2, 0.09);
       const jib=new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 1.5), woodM);
@@ -1077,8 +1104,9 @@ function stepShip(sh, dt){
     sh.dwell -= dt;
     if(sh.dwell<=0){
       coin += sh.S.cargo; landed++;
+      if(sh.dock.key==='berth') clippersLanded++;
       sh.phase='out'; sh.pts.reverse(); sh.seg=0; sh.frac=0;
-      refreshHUD();
+      refreshHUD(); checkComms();
     }
     return;
   }
@@ -1129,10 +1157,14 @@ function weatherPhase(){
   if(t > STORM_EVERY-STORM_LEN-18) return 'rising';
   return 'fair';
 }
+let lostThisStorm = false;
 function stepWeather(dt){
   if(!stormHeld) stormT += dt;
   const ph = weatherPhase();
-  if(ph==='storm' && !stormOn) stormsSeen++;   // tutorial waits on this
+  if(ph==='storm' && !stormOn){ stormsSeen++; lostThisStorm = false; }  // tutorial waits on this
+  // Riding one out only counts if you got through it WHOLE — that's the whole
+  // point of the commission, and it's what makes breakwaters feel earned.
+  if(ph!=='storm' && stormOn){ if(!lostThisStorm) stormsRidden++; checkComms(); }
   stormOn = ph==='storm';
   const target = ph==='storm' ? 1 : ph==='rising' ? 0.35 : 0.06;
   swell = lerp(swell, target, 1-Math.exp(-dt*0.6));
@@ -1152,7 +1184,7 @@ function stepWeather(dt){
     if(s.integrity <= 0){ lost = s; break; }
   }
   if(lost){
-    const orphansBefore = structures.length;
+    lostThisStorm = true;
     removeStruct(lost, null);
     recomputeAnchors();
     // Anything the sea cut loose from the town goes with it.
@@ -1225,6 +1257,30 @@ const DIRNAME = () => {
   const names=['N','NE','E','SE','S','SW','W','NW'];
   return names[(Math.round(a/45)+8)%8];
 };
+// The answer to "so what am I doing?", at every moment, forever. Ordered by
+// urgency: something actively being lost beats something merely missing. Reads
+// live state, so it can never tell you to do a thing you've already done.
+function nextGoal(){
+  if(!structures.length) return ['Found a Pontoon on the pale shoal', 'warn'];
+  const hurt = structures.filter(s=>s.integrity < 0.6);
+  if(hurt.length && weatherPhase()!=='storm')
+    return [`Mend ${hurt.length===1?hurt[0].name:hurt.length+' buildings'} before the next blow`, 'bad'];
+  if(!structures.some(s=>s.key==='cottage')) return ['Build a Raft Cottage — you need crew', 'warn'];
+  const shut = structures.filter(s=>s.ship && !s.open);
+  if(shut.length) return [`${shut[0].name} is shut — ${staffNeed-residents} crew short`, 'bad'];
+  if(!structures.some(s=>s.ship)) return ['Reach deep water and build a Jetty', 'warn'];
+  const docks = structures.filter(s=>s.ship);
+  const worst = docks.length ? Math.max(...docks.map(structExposure)) : 0;
+  if(worst > 0.55 && !structures.some(s=>s.blocks))
+    return ['Your docks are wide open — a Breakwater makes a lee', 'bad'];
+  if(!docks.some(s=>s.key==='trader'||s.key==='berth'))
+    return ['Reach further out — a Trader Dock takes bigger ships', 'warn'];
+  if(!docks.some(s=>s.key==='berth'))
+    return ['A Deep Berth in 7 m lands clippers — the best money there is', 'warn'];
+  if(worst > 0.55) return ['Shelter the deep berths, or the sea will take them', 'bad'];
+  return ['Grow the harbour, and keep the sea off it', 'calm'];
+}
+
 function refreshHUD(){
   $('#coin').textContent = Math.round(coin).toLocaleString();
   $('#season').textContent = SEASONS[seasonI].name;
@@ -1248,6 +1304,8 @@ function refreshHUD(){
                           : pct>30 ? `<span style="color:var(--warn)">${pct}%</span>`
                                    : `${pct}% — sheltered`;
   }
+  const [ng, tone] = nextGoal();
+  const nx = $('#next'); nx.textContent = ng; nx.className = tone;
   const hurt = structures.some(s=>s.integrity<0.999);
   $('#repairBtn').classList.toggle('show', hurt);
   if(hurt){
@@ -1287,6 +1345,58 @@ function renderDocks(){
       <span class="nm">${d.name}<div class="bar"><i style="width:${Math.round(d.integrity*100)}%;
         background:${d.integrity<0.5?'var(--bad)':'var(--gold)'}"></i></div></span>
       <span class="st">${d.open?`${SHIPS[d.ship].cargo}c`:'no crew'}<br>${Math.round(e*100)}%</span>`;
+    el.appendChild(row);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════ commissions
+// The tutorial ends and hands you nothing to WANT. These do — and they teach the
+// game's shape by asking for exactly the things that matter (crew, depth,
+// shelter) in the order they start mattering. Three run at once; finishing one
+// deals the next, so there's always a reason to be doing something.
+const COMMS = [
+  { id:'first',  t:'Land your first ship',                     ok:()=>landed>=1,  pay:120 },
+  { id:'five',   t:'Land 5 ships',                             ok:()=>landed>=5,  pay:220 },
+  { id:'crew8',  t:'House 8 crew on the shoal',                ok:()=>residents>=8, pay:180 },
+  { id:'trader', t:'Open a Trader Dock (4.5 m)',               ok:()=>structures.some(s=>s.key==='trader'&&s.open), pay:380 },
+  { id:'lee',    t:'Get a dock under 20% exposure',            ok:()=>structures.some(s=>s.ship && structExposure(s)<0.20), pay:300 },
+  { id:'mole',   t:'Raise a Breakwater',                       ok:()=>structures.some(s=>s.key==='breakwater'), pay:240 },
+  { id:'ride',   t:'Ride out a storm losing nothing',          ok:()=>stormsRidden>=1, pay:420 },
+  { id:'berth',  t:'Open a Deep Berth (7 m)',                  ok:()=>structures.some(s=>s.key==='berth'&&s.open), pay:700 },
+  { id:'clip',   t:'Land a clipper',                           ok:()=>clippersLanded>=1, pay:500 },
+  { id:'twenty', t:'Land 20 ships',                            ok:()=>landed>=20, pay:600 },
+  { id:'sound',  t:'Keep every building sound through a storm',ok:()=>stormsRidden>=3, pay:900 },
+  { id:'fifty',  t:'Land 50 ships',                            ok:()=>landed>=50, pay:1400 },
+];
+let commActive=[], commDone=[], clippersLanded=0, stormsRidden=0;
+function dealComms(){
+  while(commActive.length < 3){
+    const next = COMMS.find(c=>!commDone.includes(c.id) && !commActive.includes(c.id));
+    if(!next) break;
+    commActive.push(next.id);
+  }
+}
+function checkComms(){
+  for(const id of [...commActive]){
+    const c = COMMS.find(x=>x.id===id);
+    if(!c || !c.ok()) continue;
+    coin += c.pay;
+    commActive = commActive.filter(x=>x!==id);
+    commDone.push(id);
+    flash(`<b>Commission paid</b> — ${c.t}. <b>+${c.pay}</b> coin.`);
+  }
+  dealComms();
+}
+function renderComms(){
+  const el=$('#commList');
+  if(!el) return;
+  if(!commActive.length){ el.innerHTML='<div id="noComms">Nothing outstanding. The sea is yours.</div>'; return; }
+  el.innerHTML='';
+  for(const id of commActive){
+    const c=COMMS.find(x=>x.id===id); if(!c) continue;
+    const row=document.createElement('div');
+    row.className='commRow';
+    row.innerHTML=`<span class="ct">${c.t}</span><span class="cp">+${c.pay}</span>`;
     el.appendChild(row);
   }
 }
@@ -1409,7 +1519,8 @@ const slotKey=i=>'ferryfall.slot'+i;
 function saveGame(slot){
   if(slot==null) return false;
   const data={ v:3, seed, coin, clock, seasonI, landed, stormT,
-    held:stormHeld, seen:stormsSeen,
+    held:stormHeld, seen:stormsSeen, rode:stormsRidden, clip:clippersLanded,
+    cAct:commActive, cDone:commDone,
     structs: structures.map(s=>[s.key, s.x0, s.z0, +s.integrity.toFixed(3)]),
     tut:tutStep, at:Date.now() };
   try{ localStorage.setItem(slotKey(slot), JSON.stringify(data)); return true; }
@@ -1433,8 +1544,12 @@ function loadGame(slot){
   coin=d.coin; clock=d.clock||0; landed=d.landed||0; stormT=d.stormT||0; tutStep=d.tut||0;
   stormHeld = d.held !== undefined ? d.held : false;
   stormsSeen = d.seen||0; tutSeen=-1;
+  stormsRidden = d.rode||0; clippersLanded = d.clip||0;
+  commActive = d.cAct||[]; commDone = d.cDone||[]; dealComms();
+  rebuildSmoke(); seedGulls();
   activeSlot=slot;
-  applySeason(); restaff(); renderTut(); renderDocks(); renderPalette(); refreshHUD();
+  applySeason(); restaff(); renderTut(); renderDocks(); renderPalette();
+  renderComms(); refreshHUD();
   return true;
 }
 function renderSlots(){
@@ -1469,6 +1584,108 @@ function firstFreeSlot(){ for(let i=0;i<SLOTS;i++) if(!slotInfo(i)) return i; re
 setInterval(()=>{ if(running && activeSlot!=null) saveGame(activeSlot); }, 20000);
 
 // ═════════════════════════════════════════════════════════════════════ input
+// ── gulls ───────────────────────────────────────────────────────────────────
+// The world contained ships and nothing else. Gulls are the cheapest possible
+// "this place is alive" — they circle the shoals, and they clear off in a blow,
+// which is its own weather tell.
+const GULLS = 14;
+const gullGeo = new THREE.BufferGeometry();
+{
+  // two triangles hinged at the body — enough of a silhouette at this range
+  const v = new Float32Array([ 0,0,0,  -0.9,0.16,-0.34,  -0.72,0,0.30,
+                               0,0,0,   0.9,0.16,-0.34,   0.72,0,0.30 ]);
+  gullGeo.setAttribute('position', new THREE.BufferAttribute(v,3));
+  gullGeo.computeVertexNormals();
+}
+const gullMat = new THREE.MeshStandardMaterial({ color:0xf2f0e8, roughness:0.9,
+  side:THREE.DoubleSide });
+const gulls = new THREE.InstancedMesh(gullGeo, gullMat, GULLS);
+gulls.frustumCulled = false; gulls.castShadow = true;
+scene.add(gulls);
+const gullState = [];
+function seedGulls(){
+  gullState.length = 0;
+  const r = mulberry32(seed*17+3);
+  for(let i=0;i<GULLS;i++){
+    const b = banks[Math.floor(r()*banks.length)] || {ix:64,iz:64};
+    gullState.push({ cx:wx(b.ix)+(r()-0.5)*24, cz:wz(b.iz)+(r()-0.5)*24,
+                     rad:7+r()*16, y:7+r()*11, ph:r()*6.28, sp:0.22+r()*0.30 });
+  }
+}
+const _m4=new THREE.Matrix4(), _q=new THREE.Quaternion(), _v3=new THREE.Vector3(), _s3=new THREE.Vector3(1,1,1);
+function updateGulls(t){
+  gulls.visible = uStorm.value < 0.55;      // they go to ground when it turns
+  if(!gulls.visible) return;
+  for(let i=0;i<GULLS;i++){
+    const g0=gullState[i];
+    const a = g0.ph + t*g0.sp;
+    const x = g0.cx + Math.cos(a)*g0.rad, z = g0.cz + Math.sin(a)*g0.rad;
+    const y = g0.y + Math.sin(t*0.8 + g0.ph)*1.1;
+    // wingbeat by squashing the span, and bank into the turn
+    const beat = 0.55 + Math.abs(Math.sin(t*5.5 + g0.ph))*0.6;
+    _v3.set(x,y,z);
+    _q.setFromEuler(new THREE.Euler(0, -a + Math.PI/2, 0.28));
+    _s3.set(1, beat, 1);
+    _m4.compose(_v3, _q, _s3);
+    gulls.setMatrixAt(i, _m4);
+  }
+  gulls.instanceMatrix.needsUpdate = true;
+}
+
+// ── chimney smoke ───────────────────────────────────────────────────────────
+// One thin plume says "someone lives here" louder than any amount of geometry.
+const SMOKE_PER = 9;
+const smokeGeo = new THREE.PlaneGeometry(0.85, 0.85);
+// A flat quad is a flat quad — without a radial falloff these render as grey
+// RECTANGLES floating over the roof, which is worse than no smoke at all.
+function puffTex(){
+  const c=document.createElement('canvas'); c.width=c.height=64;
+  const x=c.getContext('2d');
+  const gr=x.createRadialGradient(32,32,0, 32,32,32);
+  gr.addColorStop(0,   'rgba(255,255,255,0.95)');
+  gr.addColorStop(0.45,'rgba(255,255,255,0.42)');
+  gr.addColorStop(1,   'rgba(255,255,255,0)');
+  x.fillStyle=gr; x.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+// Mid-grey, not pale. Pale smoke on a pale sky is the same mistake as pale clouds
+// on a pale sky — invisible. Real smoke reads DARK against a bright sky.
+const smokeMat = new THREE.MeshBasicMaterial({ color:0x9c948a, map:puffTex(),
+  transparent:true, opacity:0.4, depthWrite:false, toneMapped:false });
+let smoke=null, smokePuffs=[];
+function rebuildSmoke(){
+  if(smoke){ scene.remove(smoke); smoke=null; }
+  const homes = structures.filter(s=>s.key==='cottage');
+  smokePuffs = [];
+  if(!homes.length) return;
+  smoke = new THREE.InstancedMesh(smokeGeo, smokeMat, homes.length*SMOKE_PER);
+  smoke.frustumCulled = false;
+  scene.add(smoke);
+  const r = mulberry32(7);
+  for(const h of homes) for(let k=0;k<SMOKE_PER;k++)
+    smokePuffs.push({ x:wx(h.x0)+(h.w-1)*CS/2 + h.w*CS*0.19,
+                      z:wz(h.z0)+(h.h-1)*CS/2 + h.h*CS*0.16,
+                      t:r(), sp:0.30+r()*0.16, drift:r()*6.28 });
+}
+function updateSmoke(dt){
+  if(!smoke) return;
+  const wind = windDir(), gust = 0.5 + uStorm.value*2.2;
+  smokePuffs.forEach((p,i)=>{
+    p.t += dt*p.sp;
+    if(p.t>1) p.t-=1;
+    const rise = p.t*4.4;
+    const sc = 0.35 + p.t*2.1;
+    _v3.set(p.x - wind[0]*rise*gust*0.55 + Math.sin(p.drift+p.t*4)*0.16,
+            2.35 + rise,
+            p.z - wind[1]*rise*gust*0.55);
+    _q.copy(camera.quaternion);                 // billboard
+    _m4.compose(_v3, _q, _s3.set(sc,sc,sc));
+    smoke.setMatrixAt(i, _m4);
+  });
+  smoke.instanceMatrix.needsUpdate = true;
+  smoke.material.opacity = 0.40 * (1 - uStorm.value*0.45);
+}
+
 // ── rain ────────────────────────────────────────────────────────────────────
 // The sea reacted to storms and the air did nothing. Line segments in a box that
 // rides the camera, sheared along the season's wind so the weather has a
@@ -1676,13 +1893,16 @@ function frame(){
   updateTilt();                 // the sharp band tracks the zoom, every frame
   sky.position.copy(camera.position);   // dome rides with you — no edge to reach
   updateRain(dt);
+  updateGulls(now/1000);
+  updateSmoke(dt);
   if(running){
     step(dt);
     hudT += dt;
     // fetch is a raymarch; don't do it every frame. tickTutorial belongs here too:
     // it used to run ONLY on placement, so any time-based step ("you've seen a
     // storm") could never advance and the tutorial dead-ended.
-    if(hudT > 0.5){ hudT=0; refreshHUD(); renderDocks(); tickTutorial(); }
+    if(hudT > 0.5){ hudT=0; refreshHUD(); renderDocks(); tickTutorial();
+                    checkComms(); renderComms(); }
   }
   if(hintT && clock>hintT){ $('#hint').classList.remove('show'); hintT=0; }
   updateHomeRing();
@@ -1702,6 +1922,8 @@ function init(s){
   structGroup.clear(); shipGroup.clear();
   coin=START_COIN; clock=0; landed=0; stormT=0; swell=0; seasonI=0;
   stormsSeen=0; stormHeld=true; tutSeen=-1;
+  clippersLanded=0; stormsRidden=0; commActive=[]; commDone=[]; dealComms();
+  seedGulls(); rebuildSmoke();
   paintBed(); paintSea();
   restaff(); applySeason();
   // Frame the home shoal. Targeting the map centre put 8 m of empty ocean in the
@@ -1716,7 +1938,7 @@ function init(s){
     camera.position.set(wx(home.ix)-46, 52, wz(home.iz)+58);
     controls.update();
   }
-  renderPalette(); renderDocks(); refreshHUD();
+  renderPalette(); renderDocks(); renderComms(); refreshHUD();
 }
 try{
   const o=JSON.parse(localStorage.getItem('ferryfall.opts')||'{}');
@@ -1760,6 +1982,8 @@ window.__dbg={
   sim:(secs,dt)=>{ dt=dt||1/30; const n=Math.round(secs/dt);
                    for(let k=0;k<n;k++) step(dt); refreshHUD(); renderDocks(); return __dbg.state(); },
   stormsSeen:()=>stormsSeen, held:()=>stormHeld, stormT:()=>+stormT.toFixed(1),
+  comms:()=>({ active:commActive, done:commDone, ridden:stormsRidden, clippers:clippersLanded }),
+  next:()=>nextGoal()[0],
   tick:()=>{ tickTutorial(); return tutStep; },
   state:()=>({ coin:Math.round(coin), clock:+clock.toFixed(1), landed, weather:weatherPhase(),
     season:SEASONS[seasonI].name, wind:DIRNAME(), residents, staffNeed, ships:ships.length,
