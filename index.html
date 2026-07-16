@@ -50,6 +50,18 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   #weather.rising{color:var(--warn)}
   /* The ledger reported six facts and set no goal. This is the line that always
      answers "so what am I doing?" — driven off real state, so it can't go stale. */
+  /* Needs read at a glance or they're useless — the number is secondary to the
+     bar, and the bar goes red before you have to think about it. */
+  #needs{display:flex;flex-direction:column;gap:5px;padding:1px 0}
+  .need{display:flex;align-items:center;gap:7px;font-size:11.5px}
+  .need .ni{width:11px;text-align:center;opacity:.85;font-size:10px}
+  .need .nn{width:62px;opacity:.7}
+  .need .nb{flex:1;height:4px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden}
+  .need .nb i{display:block;height:100%;transition:width .4s ease}
+  .need .nv{width:30px;text-align:right;font-variant-numeric:tabular-nums;opacity:.55;font-size:10px}
+  .need.short .nn{color:var(--bad);opacity:1}
+  .need.short .nv{color:var(--bad);opacity:1}
+
   #nextRow{display:flex;flex-direction:column;gap:3px;padding:2px 0}
   .nlabel{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;opacity:.42}
   #next{font-size:13px;line-height:1.35;color:var(--gold)}
@@ -70,6 +82,12 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   .tool:hover{background:rgba(255,201,120,.09)}
   .tool.on{background:rgba(255,201,120,.17);border-color:var(--gold);color:#fff}
   .tool small{opacity:.45;font-size:10px;letter-spacing:.09em}
+  .tsep{width:1px;background:rgba(255,255,255,.14);margin:2px 4px}
+  .spd{background:transparent;border:1px solid rgba(255,255,255,.11);color:var(--text);
+    border-radius:7px;padding:0 10px;font:inherit;font-size:11px;cursor:pointer;min-width:40px;
+    letter-spacing:-1px;opacity:.72}
+  .spd:hover{background:rgba(255,201,120,.09);opacity:1}
+  .spd.on{background:rgba(255,201,120,.17);border-color:var(--gold);color:#fff;opacity:1}
 
   #palette{bottom:92px;left:50%;transform:translateX(-50%);display:none;gap:6px;padding:6px;pointer-events:auto}
   #palette.show{display:flex}
@@ -197,6 +215,8 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   <div class="row"><span class="k">Crew</span><span class="v" id="staff">0 / 0</span></div>
   <div class="row"><span class="k">Worst exposure</span><span class="v" id="worst">—</span></div>
   <div class="sep"></div>
+  <div id="needs"></div>
+  <div class="sep"></div>
   <div id="nextRow"><span class="nlabel">Next</span><span id="next">—</span></div>
   <button id="repairBtn">Repair everything</button>
 </div>
@@ -221,6 +241,11 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   <button class="tool on" data-tool="build">Build<small>1</small></button>
   <button class="tool" data-tool="demolish">Break up<small>2</small></button>
   <button class="tool" data-tool="look">Look<small>3</small></button>
+  <span class="tsep"></span>
+  <button class="spd" data-s="0" title="Pause (Space)">❚❚</button>
+  <button class="spd on" data-s="1" title="Normal">▶</button>
+  <button class="spd" data-s="2" title="Fast">▶▶</button>
+  <button class="spd" data-s="3" title="Faster">▶▶▶</button>
 </div>
 
 <div id="settings"><div class="panel" id="setIn">
@@ -294,7 +319,27 @@ const TYPES = {
               hint:'walk it out from the shoal' },
   cottage:  { key:'cottage',  name:'Raft Cottage', w:2,h:2, need:0.50, cost:150, res:4, staff:0,
               color:0xa8654a, tall:1.5,  roof:true,  blocks:false, hardy:false,
-              hint:'+4 crew · safe on the shoal' },
+              hint:'+4 berths · safe on the shoal' },
+  // staff:0 on ALL services, deliberately. Crewed services deadlock the game dead:
+  // needs gate growth → no growth → no crew → services can't open → needs stay
+  // unmet → the town empties before it starts. Crew is the interesting constraint
+  // on DOCKS (reach vs hands); a rain barrel is run by the households it serves.
+  // Their real cost is coin and — far more importantly — scarce shoal.
+  cistern:  { key:'cistern',  name:'Cistern',      w:2,h:2, need:0.40, cost:170, res:0, staff:0,
+              color:0x6f9fb8, tall:1.1,  roof:false, blocks:false, hardy:false,
+              serves:{ water:14 }, hint:'fresh water for 14 · catches the rain' },
+  // 0.85, not 1.2: it still has to stand in real water (you don't fish on sand),
+  // but at 1.2 it lived out past the shoal on your pier, so FOOD became a
+  // late-game problem gating a town that hasn't built a pier yet.
+  fishery:  { key:'fishery',  name:'Fish Stage',   w:2,h:2, need:0.85, cost:190, res:0, staff:0,
+              color:0x7d9c6a, tall:0.9,  roof:false, blocks:false, hardy:false,
+              serves:{ food:12 }, hint:'food for 12 · must stand in real water' },
+  fuelstore:{ key:'fuelstore',name:'Fuel Store',   w:2,h:2, need:0.45, cost:150, res:0, staff:0,
+              color:0xb07a44, tall:1.2,  roof:true,  blocks:false, hardy:false,
+              serves:{ warmth:16 }, hint:'fuel for 16 · peat and driftwood' },
+  tavern:   { key:'tavern',   name:'Tavern',       w:3,h:2, need:0.60, cost:340, res:0, staff:0,
+              color:0xc2704e, tall:1.9,  roof:true,  blocks:false, hardy:false,
+              serves:{ cheer:22 }, hint:'cheer for 22 · somewhere to be after a shift' },
   breakwater:{key:'breakwater',name:'Breakwater',  w:3,h:1, need:0.0,  cost:240, res:0, staff:0,
               color:0x77716a, tall:0.75, roof:false, blocks:true,  hardy:true,
               maxDepth:BREAKWATER_MAX,
@@ -309,7 +354,23 @@ const TYPES = {
               color:0x6f9ab8, tall:1.0,  roof:false, blocks:false, hardy:false,
               ship:'clipper', hint:'clippers · 3 crew · far out, wide open' },
 };
-const BUILD_ORDER = ['pontoon','cottage','breakwater','jetty','trader','berth'];
+// NEEDS. The sea hands us the premise: you are surrounded by water you cannot
+// drink. These aren't bolted on — a floating town genuinely needs fresh water,
+// food, fuel and somewhere to drink at the end of a shift. They also give the
+// game a second axis (a town to RUN, not just a harbour to build) and they make
+// shoal space finally scarce, because a cistern competes with a cottage for sand.
+const NEEDS = [
+  { key:'water',  name:'Fresh water', icon:'◇', from:'cistern',  col:'#6fb6d8',
+    short:'Rain is the only water out here.' },
+  { key:'food',   name:'Food',        icon:'◈', from:'fishery',  col:'#8fc46a',
+    short:'Nobody eats ballast.' },
+  { key:'warmth', name:'Fuel',        icon:'✦', from:'fuelstore',col:'#e0954a',
+    short:'Wet and cold is no way to live.' },
+  { key:'cheer',  name:'Cheer',       icon:'❈', from:'tavern',   col:'#d98ab0',
+    short:'A hard shift wants an evening.' },
+];
+const BUILD_ORDER = ['pontoon','cottage','cistern','fishery','fuelstore','tavern',
+                     'breakwater','jetty','trader','berth'];
 
 const SHIPS = {
   coaster: { name:'Coaster', draft:2.0, cargo:16,  every:34, len:2.6, col:0x9a8b6e,
@@ -568,10 +629,12 @@ const skyMat = new THREE.ShaderMaterial({
       vec3 col = mix(bot, top, smoothstep(-0.02, 0.30, d.y));
 
       // sun: a disc plus a wide bloom, killed by cloud when it turns
+      // Tight. At pow 180 / 0.85 the bloom was a white hole eating a third of the
+      // frame — a sun should be a point you notice, not a light leak.
       float sd = dot(d, normalize(sunDir));
-      float disc = smoothstep(0.9975, 0.9990, sd);
-      float bloom = pow(max(sd,0.0), 180.0);
-      col += sun * (disc*2.2 + bloom*0.85) * (1.0-uStorm*0.95);
+      float disc = smoothstep(0.9994, 0.9998, sd);
+      float bloom = pow(max(sd,0.0), 900.0);
+      col += sun * (disc*1.5 + bloom*0.5) * (1.0-uStorm*0.95);
 
       // Project onto a plane overhead so the layer lies FLAT and gets real
       // perspective — clouds bunching toward the horizon is the whole effect.
@@ -1135,7 +1198,7 @@ function posStruct(s){
 // People come because the harbour is worth living in (trade), and they leave when
 // the sea proves it isn't. That chains the score to the entire game:
 //   population ← trade ← docks ← deep water ← exposure ← the storm.
-let population=0, capacity=0, staffNeed=0, trade=0, popT=0;
+let population=0, capacity=0, staffNeed=0, trade=0, popT=0, leaveT=0;
 const TIERS = [
   { n:0,   name:'An anchorage' },
   { n:10,  name:'A camp' },
@@ -1145,6 +1208,23 @@ const TIERS = [
 ];
 const tierOf = p => TIERS.reduce((a,t)=> p>=t.n ? t : a, TIERS[0]);
 let tierSeen = 0;
+
+// Coverage per need = what your OPEN buildings serve ÷ how many souls you have.
+// The WEAKEST need gates growth — the Skylines lesson: a town is only as good as
+// the thing it's worst at, and one missing service stops everything.
+let cover = { water:1, food:1, warmth:1, cheer:1 };
+function recomputeNeeds(){
+  const served = { water:0, food:0, warmth:0, cheer:0 };
+  for(const s of structures){
+    if(!s.serves || !s.open) continue;
+    for(const k in s.serves) served[k] += s.serves[k];
+  }
+  for(const n of NEEDS)
+    cover[n.key] = population <= 0.01 ? 1 : clamp(served[n.key]/population, 0, 1.4);
+  return cover;
+}
+const worstNeed = () => NEEDS.reduce((a,n)=> cover[n.key] < cover[a.key] ? n : a, NEEDS[0]);
+const needGate  = () => Math.min(...NEEDS.map(n=>Math.min(1, cover[n.key])));
 
 let residents=0;   // kept as an alias for population — staffing reads it
 function restaff(){
@@ -1423,6 +1503,7 @@ function stepPopulation(dt){
   // has it been lately", which is exactly what should attract people.
   trade *= Math.exp(-dt/60);
   if(trade < 0.001) trade = 0;
+  recomputeNeeds();
   const room = capacity - population;
   if(room > 0){
     // A bigger town needs a BUSIER harbour just to keep growing. Without this the
@@ -1435,10 +1516,19 @@ function stepPopulation(dt){
     // shoal, once you've used up the good sheltered water near the first.
     const needed = population / 55;
     const surplus = trade - needed;
-    popT += dt * (0.02 + Math.max(0, surplus) * 0.30);
+    // Needs gate everything. A harbour booming with trade grows nobody if there's
+    // no fresh water — which is the whole point of having needs at all.
+    popT += dt * (0.02 + Math.max(0, surplus) * 0.30) * needGate();
     while(popT >= 1 && population < capacity){ popT -= 1; population++; onPopChange(); }
     if(popT > 1) popT = 1;
   } else popT = 0;
+
+  // Badly unmet needs don't just stall the town — they empty it.
+  const gate = needGate();
+  if(population > 3 && gate < 0.5){
+    leaveT += dt * (0.5 - gate) * 0.6;
+    if(leaveT >= 1){ leaveT -= 1; peopleLeave(1, `no ${worstNeed().name.toLowerCase()}`); }
+  } else leaveT = 0;
 }
 function onPopChange(){
   const t = tierOf(population);
@@ -1523,6 +1613,16 @@ function nextGoal(){
   if(!structures.some(s=>s.key==='cottage')) return ['Build a Raft Cottage — berths for people to live in', 'warn'];
   const shut = structures.filter(s=>s.ship && !s.open);
   if(shut.length) return [`${shut[0].name} is shut — ${staffNeed-residents} crew short`, 'bad'];
+  // Needs come BEFORE the harbour: a booming port with no fresh water grows
+  // nobody, and telling you to build a dock while your town is dying of thirst
+  // would make this line a liar.
+  if(population >= 0.5){
+    const w = worstNeed();
+    if(cover[w.key] < 0.5)
+      return [`No ${w.name.toLowerCase()} — people are leaving. ${w.short}`, 'bad'];
+    if(cover[w.key] < 0.999)
+      return [`${w.name} is short — build a ${TYPES[w.from].name}`, 'warn'];
+  }
   if(!structures.some(s=>s.ship)) return ['Reach deep water and build a Jetty — no ships, no growth', 'warn'];
   const docks = structures.filter(s=>s.ship);
   const worst = docks.length ? Math.max(...docks.map(structExposure)) : 0;
@@ -1541,8 +1641,28 @@ function nextGoal(){
   return [`Keep the ships coming — ${Math.max(0, Math.ceil(capacity-population))} berths still to fill`, 'calm'];
 }
 
+function renderNeeds(){
+  const el=$('#needs');
+  if(!el.children.length){                 // build once, then only update widths
+    el.innerHTML = NEEDS.map(n=>
+      `<div class="need" data-n="${n.key}"><span class="ni" style="color:${n.col}">${n.icon}</span>`
+      + `<span class="nn">${n.name}</span><span class="nb"><i style="background:${n.col}"></i></span>`
+      + `<span class="nv">—</span></div>`).join('');
+  }
+  for(const n of NEEDS){
+    const row = el.querySelector(`[data-n="${n.key}"]`);
+    const c = cover[n.key];
+    const pct = Math.round(Math.min(1,c)*100);
+    row.querySelector('.nb i').style.width = pct+'%';
+    row.querySelector('.nb i').style.background = c < 0.5 ? '#e8927c' : n.col;
+    row.querySelector('.nv').textContent = population<0.5 ? '—' : pct+'%';
+    row.classList.toggle('short', population>=0.5 && c < 0.999);
+  }
+}
+
 let popShown = 0;
 function refreshHUD(){
+  recomputeNeeds(); renderNeeds();
   const pop = Math.floor(population);
   const pn = $('#popNum');
   if(pop !== popShown){
@@ -1641,8 +1761,11 @@ const COMMS = [
   { id:'first',  t:'Land your first ship',                     ok:()=>landed>=1,  pay:120 },
   { id:'pop5',   t:'Bring 5 souls to the shoal',               ok:()=>population>=5, pay:180 },
   { id:'five',   t:'Land 5 ships',                             ok:()=>landed>=5,  pay:200 },
+  { id:'water',  t:'Catch fresh water for everyone',           ok:()=>population>0 && cover.water>=1, pay:200 },
   { id:'pop10',  t:'Grow to a camp — 10 souls',                ok:()=>population>=10, pay:280 },
+  { id:'fed',    t:'Feed the whole town',                      ok:()=>population>0 && cover.food>=1, pay:240 },
   { id:'trader', t:'Open a Trader Dock (4.5 m)',               ok:()=>structures.some(s=>s.key==='trader'&&s.open), pay:380 },
+  { id:'allneeds',t:'Meet every need at once',                 ok:()=>population>=8 && NEEDS.every(n=>cover[n.key]>=1), pay:600 },
   { id:'lee',    t:'Get a dock under 20% exposure',            ok:()=>structures.some(s=>s.ship && structExposure(s)<0.20), pay:300 },
   { id:'pop25',  t:'Grow to a village — 25 souls',             ok:()=>population>=25, pay:520 },
   { id:'ride',   t:'Ride out a storm losing nothing',          ok:()=>stormsRidden>=1, pay:420 },
@@ -1711,9 +1834,12 @@ const TUT = [
   { t:'Everything out here is too deep to stand in — except the <b>pale shoals</b>. Take a <b>Pontoon</b> and click the ringed sand: a pile still reaches the bed there.',
     focus:'.chip[data-k="pontoon"]',
     ok:()=>structures.length>0 },
-  { t:'Good. A <b>Raft Cottage</b> gives you crew, and the shoal shelters it. Everything you put here is safe — and worth nothing on its own.',
+  { t:'Good. A <b>Raft Cottage</b> is berths for people, and the shoal shelters it. Everything you put here is safe — and worth nothing on its own.',
     focus:'.chip[data-k="cottage"]',
     ok:()=>structures.some(s=>s.key==='cottage') },
+  { t:'You are surrounded by water nobody can drink. A <b>Cistern</b> catches the rain. Watch the <b>needs</b> in the ledger — the town only grows as well as its worst one.',
+    focus:'.chip[data-k="cistern"]',
+    ok:()=>structures.some(s=>s.key==='cistern') },
   { t:'Now walk pontoons <b>out into the blue</b>. Past the shoal nothing touches bottom, so each plank holds the next — and the sea gets a hold on you.',
     focus:'.chip[data-k="pontoon"]',
     // Deliberately NOT auto-enabling the exposure overlay here. It tints every
@@ -1887,6 +2013,60 @@ function firstFreeSlot(){ for(let i=0;i<SLOTS;i++) if(!slotInfo(i)) return i; re
 setInterval(()=>{ if(running && activeSlot!=null) saveGame(activeSlot); }, 20000);
 
 // ═════════════════════════════════════════════════════════════════════ input
+// ── island vegetation ───────────────────────────────────────────────────────
+// The islands were bare green blobs — the least believable thing on screen, and
+// the only landmarks you navigate by. Palms lean away from the prevailing wind,
+// which is a free bit of storytelling: the weather has been doing this for years.
+const palmGroup = new THREE.Group(); scene.add(palmGroup);
+const trunkGeo = new THREE.CylinderGeometry(0.055, 0.13, 1, 5);
+const frondGeo = new THREE.ConeGeometry(0.17, 1.25, 3);   // narrower — paddles read as signposts
+const rockGeo  = new THREE.DodecahedronGeometry(0.5, 0);
+const trunkMat = new THREE.MeshStandardMaterial({ color:0x8a7250, roughness:0.95 });
+const frondMat = new THREE.MeshStandardMaterial({ color:0x4f7a3c, roughness:0.9,
+                                                  side:THREE.DoubleSide });
+const rockMat  = new THREE.MeshStandardMaterial({ color:0x7d7468, roughness:1, flatShading:true });
+function scatterPalms(){
+  palmGroup.clear();
+  const r = mulberry32(seed*41+3);
+  const trunks=[], fronds=[], rocks=[];
+  // Islands are small, so a sparse random scatter lands ~6 palms and reads as
+  // signposts. Sample hard and take almost every dry cell.
+  for(let k=0;k<9000;k++){
+    const ix=2+Math.floor(r()*(N-4)), iz=2+Math.floor(r()*(N-4));
+    const h=H[idx(ix,iz)];
+    if(h < 0.35) continue;                        // dry land only
+    const x=wx(ix)+(r()-0.5)*CS, z=wz(iz)+(r()-0.5)*CS;
+    if(h > 0.9 && r() < 0.75){
+      const H0=1.7+r()*1.5, lean=0.10+r()*0.22;   // all lean off the weather
+      trunks.push({x,y:h,z,H:H0,lean,rot:r()*6.28});
+      for(let f=0; f<7; f++) fronds.push({ x,y:h+H0,z, a:f/7*6.28 + r()*0.3, lean, droop:0.55+r()*0.35 });
+    } else if(r() < 0.45){
+      rocks.push({ x, y:h-0.1, z, s:0.3+r()*0.6, rx:r()*3, ry:r()*3 });
+    }
+    if(trunks.length > 130) break;
+  }
+  const put=(geo,mat,list,fn)=>{
+    if(!list.length) return;
+    const m=new THREE.InstancedMesh(geo, mat, list.length);
+    m.castShadow=true; m.receiveShadow=true;
+    list.forEach((p,i)=>{ m.setMatrixAt(i, fn(p)); });
+    palmGroup.add(m);
+  };
+  put(trunkGeo, trunkMat, trunks, p=>{
+    _q.setFromEuler(new THREE.Euler(p.lean, p.rot, p.lean*0.6));
+    return _m4.compose(_v3.set(p.x, p.y+p.H/2, p.z), _q, _s3.set(1, p.H, 1));
+  });
+  put(frondGeo, frondMat, fronds, p=>{
+    _q.setFromEuler(new THREE.Euler(Math.PI*0.42*p.droop, p.a, p.lean));
+    return _m4.compose(_v3.set(p.x + Math.cos(p.a)*0.5, p.y-0.1, p.z + Math.sin(p.a)*0.5),
+                       _q, _s3.set(1,1,1));
+  });
+  put(rockGeo, rockMat, rocks, p=>{
+    _q.setFromEuler(new THREE.Euler(p.rx, p.ry, 0));
+    return _m4.compose(_v3.set(p.x,p.y,p.z), _q, _s3.set(p.s, p.s*0.7, p.s));
+  });
+}
+
 // ── gulls ───────────────────────────────────────────────────────────────────
 // The world contained ships and nothing else. Gulls are the cheapest possible
 // "this place is alive" — they circle the shoals, and they clear off in a blow,
@@ -2161,10 +2341,15 @@ addEventListener('pointerup', e=>{
   if(tool==='build'){ const T=TYPES[buildType], o=ghostOrigin(pt,T); place(buildType,o.x0,o.z0); }
   if(tool==='demolish'){ const s=structAt(pt); if(s) demolish(s); else flash('Click one of your own buildings.'); }
 });
+let lastSpeed = 1;
 addEventListener('keydown', e=>{
   if(e.key==='1') setTool('build');
   if(e.key==='2') setTool('demolish');
   if(e.key==='3') setTool('look');
+  if(e.code==='Space'){ e.preventDefault();
+    if(speed===0) setSpeed(lastSpeed||1); else { lastSpeed=speed; setSpeed(0); } }
+  if(e.key===',' || e.key==='<') setSpeed(Math.max(0, speed-1));
+  if(e.key==='.' || e.key==='>') setSpeed(Math.min(3, speed+1));
   if(e.key==='Escape') toggleSettings();
   if(e.key==='s'||e.key==='S'){ seasonI=(seasonI+1)%4; applySeason();
     flash(`<b>${SEASONS[seasonI].name}</b> — wind swings to the <b>${DIRNAME()}</b>. Your lee just moved.`); }
@@ -2172,6 +2357,7 @@ addEventListener('keydown', e=>{
   if(keys[e.key]){ buildType=keys[e.key]; setTool('build'); renderPalette(); }
 });
 for(const el of document.querySelectorAll('.tool')) el.onclick=()=>setTool(el.dataset.tool);
+for(const el of document.querySelectorAll('.spd')) el.onclick=()=>setSpeed(+el.dataset.s);
 $('#repairBtn').onclick = repairAll;
 
 function applySeason(){
@@ -2224,10 +2410,38 @@ const TiltShift={
       gl_FragColor = sum/wsum;
     }`
 };
+// Every element was individually fine and collectively unrelated — which is what
+// "rendered, not authored" looks like. A grade is the cheapest way to make a
+// frame feel like someone chose it: split-tone (warm highs, cool shadows) ties
+// the sun and the sea to each other, a touch of saturation stops the palette
+// going muddy under fog, and the vignette holds the eye on your harbour instead
+// of the empty corners. Runs in linear space, BEFORE OutputPass does the encode.
+const Grade = {
+  uniforms:{ tDiffuse:{value:null}, vig:{value:0.42}, sat:{value:1.14},
+             warmth:{value:1.0}, lift:{value:0.012} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float vig, sat, warmth, lift;
+    varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.299,0.587,0.114));
+      vec3 warm = mix(vec3(1.0), vec3(1.055,1.0,0.93), warmth);
+      vec3 cool = mix(vec3(1.0), vec3(0.94,0.985,1.07), warmth);
+      c.rgb *= mix(cool, warm, smoothstep(0.12, 0.72, l));
+      c.rgb = max(vec3(0.0), mix(vec3(l), c.rgb, sat));
+      c.rgb += lift * (1.0 - smoothstep(0.0, 0.35, l));   // filmic-ish toe
+      vec2 d = vUv - 0.5; d.x *= 1.15;
+      c.rgb *= 1.0 - dot(d,d) * vig;
+      gl_FragColor = c;
+    }`
+};
+
 const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
 const tsH=new ShaderPass(TiltShift); composer.addPass(tsH);
 const tsV=new ShaderPass(TiltShift); composer.addPass(tsV);
+const grade=new ShaderPass(Grade); composer.addPass(grade);
 // MANDATORY — a raw ShaderPass writes linear straight to the sRGB canvas, no tone
 // map, no encode → the whole game renders gamma-crushed to near-black. See README.
 composer.addPass(new OutputPass());
@@ -2243,6 +2457,19 @@ function resize(){
 }
 addEventListener('resize', resize);
 
+// Fixed timestep, so speed is "how many ticks per frame" rather than "a bigger
+// dt". Scaling dt directly would let a boat teleport past a berth at 3× and make
+// storm damage frame-rate dependent — the sim must not know what speed you chose.
+const FIXED = 1/30;
+let simAcc = 0;
+const SPEEDS = [0, 1, 2, 4];
+let speed = 1;
+function setSpeed(i){
+  speed = i;
+  for(const el of document.querySelectorAll('.spd')) el.classList.toggle('on', +el.dataset.s === i);
+  if(i===0) flash('<b>Paused.</b>');
+}
+
 let last=performance.now(), hudT=0;
 function frame(){
   const now=performance.now(), dt=Math.min((now-last)/1000, 0.05); last=now;
@@ -2254,8 +2481,11 @@ function frame(){
   updateSmoke(dt);
   updateCrew(dt);
   if(running){
-    step(dt);
-    hudT += dt;
+    simAcc += dt * SPEEDS[speed];
+    let guard = 0;
+    while(simAcc >= FIXED && guard++ < 12){ step(FIXED); simAcc -= FIXED; }
+    if(simAcc > FIXED*4) simAcc = 0;      // don't bank a debt after a stall
+    hudT += dt * (SPEEDS[speed] ? 1 : 0);
     // fetch is a raymarch; don't do it every frame. tickTutorial belongs here too:
     // it used to run ONLY on placement, so any time-based step ("you've seen a
     // storm") could never advance and the tutorial dead-ended.
@@ -2283,7 +2513,7 @@ function init(s){
   clippersLanded=0; stormsRidden=0; commActive=[]; commDone=[]; dealComms();
   population=0; capacity=0; trade=0; popT=0; tierSeen=0; popShown=-1; won=false;
   $('#win').classList.remove('show');
-  seedGulls(); rebuildSmoke();
+  seedGulls(); rebuildSmoke(); scatterPalms();
   paintBed(); paintSea();
   restaff(); applySeason();
   // Frame the home shoal. Targeting the map centre put 8 m of empty ocean in the
@@ -2348,6 +2578,10 @@ window.__dbg={
   tick:()=>{ tickTutorial(); return tutStep; },
   pop:()=>({ population:+population.toFixed(2), capacity, trade:+trade.toFixed(2),
              tier:tierOf(population).name, won }),
+  needs:()=>{ recomputeNeeds(); const o={};
+              for(const n of NEEDS) o[n.key]=+cover[n.key].toFixed(2);
+              o._gate=+needGate().toFixed(2); o._worst=worstNeed().key; return o; },
+  speed:(i)=>{ if(i!=null) setSpeed(i); return { speed, mult:SPEEDS[speed] }; },
   addPop:(n)=>{ population=Math.min(capacity, population+n); restaff(); onPopChange();
                 refreshHUD(); return population; },
   state:()=>({ coin:Math.round(coin), clock:+clock.toFixed(1), landed, weather:weatherPhase(),
