@@ -312,9 +312,18 @@ const TYPES = {
 const BUILD_ORDER = ['pontoon','cottage','breakwater','jetty','trader','berth'];
 
 const SHIPS = {
-  coaster: { name:'Coaster', draft:2.0, cargo:16,  every:34, len:2.6, col:0x9a8b6e },
-  trader:  { name:'Trader',  draft:4.0, cargo:46,  every:46, len:4.0, col:0x8d7a5c },
-  clipper: { name:'Clipper', draft:6.5, cargo:112, every:60, len:5.4, col:0x9c8a66 },
+  coaster: { name:'Coaster', draft:2.0, cargo:16,  every:34, len:2.6, col:0x9a8b6e,
+             sail:0xe6dcc2, pennant:null,
+             masts:[{ h:0.78, z:0.04, sails:[{w:0.62, h:0.46, y:0.34}] }] },
+  trader:  { name:'Trader',  draft:4.0, cargo:46,  every:46, len:4.0, col:0x8d7a5c,
+             sail:0xf0e8d4, pennant:0xc4564a,
+             masts:[{ h:0.92, z:0.14, sails:[{w:0.70, h:0.44, y:0.42},{w:0.54, h:0.28, y:0.14}] },
+                    { h:0.66, z:-0.26, sails:[{w:0.50, h:0.30, y:0.24}] }] },
+  clipper: { name:'Clipper', draft:6.5, cargo:112, every:60, len:5.4, col:0x9c8a66,
+             sail:0xfaf4e6, pennant:0xffb347,
+             masts:[{ h:1.20, z:0.20, sails:[{w:0.78, h:0.40, y:0.62},{w:0.66, h:0.32, y:0.34},{w:0.50, h:0.22, y:0.13}] },
+                    { h:1.02, z:-0.06, sails:[{w:0.70, h:0.36, y:0.50},{w:0.56, h:0.26, y:0.24}] },
+                    { h:0.78, z:-0.32, sails:[{w:0.52, h:0.30, y:0.30}] }] },
 };
 
 // Wind turns with the year. This season's lee is next season's weather side —
@@ -969,13 +978,59 @@ function matFor(s, state){
   }
   return structMats[k];
 }
+// A town should look ACCUMULATED, not stamped. Every cottage being the same
+// cottage is a bigger problem than any missing geometry — so each one rolls a
+// silhouette and a weathered roof off its own uid. Deterministic, so a building
+// looks the same every time you load the save.
+const ROOFS = [0x8f4a3a, 0xa8583f, 0x6f4436, 0x9c6b3e, 0x4f5a52, 0x7d5348];
+const WALLS = [0xa8654a, 0xb8764f, 0x94614a, 0xa97250, 0x8d5c46];
+function roofMatFor(c){
+  const k='roof'+c;
+  if(!structMats[k]) structMats[k]=new THREE.MeshStandardMaterial({ color:c, roughness:0.86 });
+  return structMats[k];
+}
 function addStructMesh(s){
   const g=new THREE.Group();
   const cw=s.w*CS, ch=s.h*CS;
+  const r = mulberry32(s.uid*131+17);
   const hull=new THREE.Mesh(new THREE.BoxGeometry(cw*0.96, 0.3, ch*0.96),
     new THREE.MeshStandardMaterial({ color: s.blocks?0x6b6560:0x6a563d, roughness:0.92 }));
   hull.position.y=0.02; hull.castShadow=true; hull.receiveShadow=true; g.add(hull);
-  if(s.tall>0.3){
+
+  if(s.key==='cottage'){
+    // three silhouettes: gabled, hipped, and a tall narrow one with a lean-to
+    const shape = Math.floor(r()*3);
+    const wallC = WALLS[Math.floor(r()*WALLS.length)];
+    const roofC = ROOFS[Math.floor(r()*ROOFS.length)];
+    const wallM = roofMatFor(wallC);
+    const tall = s.tall * (shape===2 ? 1.35 : 0.9 + r()*0.25);
+    const bw = cw*(shape===2 ? 0.5 : 0.62+r()*0.12), bd = ch*(shape===2 ? 0.5 : 0.62+r()*0.12);
+    const body=new THREE.Mesh(new THREE.BoxGeometry(bw, tall, bd), wallM);
+    body.position.set((r()-0.5)*cw*0.12, 0.17+tall/2, (r()-0.5)*ch*0.12);
+    body.rotation.y = (r()-0.5)*0.24;                       // nothing sits square
+    body.castShadow=true; body.receiveShadow=true; g.add(body); s.bodyMesh=body;
+    let rf;
+    if(shape===0){                                          // gable: a prism
+      rf=new THREE.Mesh(new THREE.CylinderGeometry(0.001, Math.max(bw,bd)*0.72, 0.62, 3),
+        roofMatFor(roofC));
+      rf.rotation.z = Math.PI/2; rf.rotation.y = Math.PI/2;
+      rf.scale.set(1, bd*1.5, 1);
+    } else {                                                // hip / pyramid
+      rf=new THREE.Mesh(new THREE.ConeGeometry(Math.max(bw,bd)*0.78, 0.55+r()*0.4, 4),
+        roofMatFor(roofC));
+      rf.rotation.y=Math.PI/4;
+    }
+    rf.position.set(body.position.x, 0.17+tall+0.28, body.position.z);
+    rf.rotation.y += body.rotation.y;
+    rf.castShadow=true; g.add(rf);
+    if(shape===1){                                          // a lean-to shed
+      const sh=new THREE.Mesh(new THREE.BoxGeometry(bw*0.5, tall*0.55, bd*0.42), wallM);
+      sh.position.set(body.position.x + bw*0.62, 0.17+tall*0.275, body.position.z - bd*0.2);
+      sh.rotation.y=body.rotation.y; sh.castShadow=true; g.add(sh);
+    }
+    s.chimneyAt = [body.position.x + bw*0.28, 0.17+tall+0.55, body.position.z + bd*0.22];
+  }
+  else if(s.tall>0.3){
     const body=new THREE.Mesh(new THREE.BoxGeometry(cw*0.72, s.tall, ch*0.72), matFor(s,''));
     body.position.y=0.17+s.tall/2; body.castShadow=true; body.receiveShadow=true;
     g.add(body); s.bodyMesh=body;
@@ -1002,8 +1057,12 @@ function addDetail(s, g, cw, ch){
     p.position.set(x, h/2-0.16, z); p.castShadow=true; g.add(p); return p; };
 
   if(s.key==='cottage'){
-    const ch2=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.7,0.24), stoneM);
-    ch2.position.set(cw*0.19, 0.17+s.tall+0.5, ch*0.16); ch2.castShadow=true; g.add(ch2);
+    // ride the varied silhouette — a chimney at a fixed offset floats off the
+    // roof of anything that isn't the default box
+    const ca = s.chimneyAt || [cw*0.19, 0.17+s.tall+0.5, ch*0.16];
+    const ch2=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.66,0.22), stoneM);
+    ch2.position.set(ca[0], ca[1], ca[2]); ch2.castShadow=true; g.add(ch2);
+    s.smokeAt = ca;
     // a little washing line, because someone lives here
     const pole=post(-cw*0.32, -ch*0.3, 0.9, 0.045); pole.material=woodM;
     for(let k=0;k<3;k++){
@@ -1134,16 +1193,27 @@ function makeHull(S){
   const cabin=new THREE.Mesh(new THREE.BoxGeometry(W*0.5, 0.34, L*0.2),
     new THREE.MeshStandardMaterial({ color:0x6b4f3a, roughness:0.85 }));
   cabin.position.set(0, 0.84, -L*0.28); cabin.castShadow=true; g.add(cabin);
-  const mast=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.075, L*0.85, 6),
-    new THREE.MeshStandardMaterial({ color:0x5a4a36 }));
-  mast.position.set(0, 0.7+L*0.42, L*0.02); mast.castShadow=true; g.add(mast);
-  for(const [h,w,z] of [[0.52,0.62,0.10],[0.34,0.42,-0.12]]){
-    const sail=new THREE.Mesh(new THREE.PlaneGeometry(W*1.15*w*1.6, L*h),
-      new THREE.MeshStandardMaterial({ color:0xf0e8d4, roughness:0.95,
-                                       side:THREE.DoubleSide }));
-    sail.position.set(0, 0.8+L*h*0.55, L*z);
-    sail.rotation.y = Math.PI/2;
-    sail.castShadow=true; g.add(sail);
+  // Rig by class. The three ships used to differ only in LENGTH, so a clipper was
+  // just a long coaster — the ladder you're climbing was invisible on the water.
+  // A coaster is a stubby single-sail; a clipper is tall with three and a pennant.
+  const rig = S.masts.map((m,i)=>{
+    const mast=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.07, L*m.h, 6),
+      new THREE.MeshStandardMaterial({ color:0x5a4a36 }));
+    mast.position.set(0, 0.7+L*m.h*0.5, L*m.z); mast.castShadow=true; g.add(mast);
+    for(const sq of m.sails){
+      const sail=new THREE.Mesh(new THREE.PlaneGeometry(W*1.9*sq.w, L*sq.h),
+        new THREE.MeshStandardMaterial({ color:S.sail, roughness:0.95, side:THREE.DoubleSide }));
+      sail.position.set(0, 0.8 + L*sq.y, L*m.z);
+      sail.rotation.y = Math.PI/2;
+      sail.castShadow=true; g.add(sail);
+    }
+    return mast;
+  });
+  if(S.pennant){
+    const p=new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.16),
+      new THREE.MeshStandardMaterial({ color:S.pennant, side:THREE.DoubleSide, roughness:1 }));
+    p.position.set(0.25, 0.7 + L*S.masts[0].h*0.98, L*S.masts[0].z);
+    p.rotation.y = Math.PI/2; g.add(p);
   }
   return g;
 }
@@ -1229,7 +1299,10 @@ function stepShip(sh, dt){
       coin += sh.S.cargo; landed++;
       // Bigger ships mean more prosperity, so the reach out into the weather is
       // what actually grows the town — not just what pays for it.
-      trade = Math.min(1.2, trade + sh.S.cargo/110);
+      // Cap raised from 1.2: a port needs trade ≈1.8 just to keep growing, so the
+      // old ceiling made 100 souls literally unreachable by trade. It's a runaway
+      // guard now, not a balance knob.
+      trade = Math.min(4.0, trade + sh.S.cargo/110);
       if(sh.dock.key==='berth') clippersLanded++;
       sh.phase='out'; sh.pts.reverse(); sh.seg=0; sh.frac=0;
       refreshHUD(); checkComms();
@@ -1352,11 +1425,17 @@ function stepPopulation(dt){
   if(trade < 0.001) trade = 0;
   const room = capacity - population;
   if(room > 0){
-    // The trickle (0.02) exists only to break a deadlock: crew staffs the dock,
-    // the dock brings the ships, the ships bring the crew. Kept slow — 1 soul per
-    // 50 s — so it can't substitute for trade. (You can't buy the berths without
-    // trading anyway: 100 souls needs 25 cottages = 3,750 coin off a 900 grant.)
-    popT += dt * (0.02 + trade*0.22);
+    // A bigger town needs a BUSIER harbour just to keep growing. Without this the
+    // game caps out at four jetties — trade saturates, growth hits its maximum
+    // forever, and a port is "spam cottages and wait". There's no reason to ever
+    // reach further out, which is the entire game.
+    //
+    // Now: ~20 souls on one jetty · ~50 wants traders (deeper, exposed) · 100
+    // wants deep berths and clippers (far out, needs real moles) — or a second
+    // shoal, once you've used up the good sheltered water near the first.
+    const needed = population / 55;
+    const surplus = trade - needed;
+    popT += dt * (0.02 + Math.max(0, surplus) * 0.30);
     while(popT >= 1 && population < capacity){ popT -= 1; population++; onPopChange(); }
     if(popT > 1) popT = 1;
   } else popT = 0;
@@ -1448,6 +1527,8 @@ function nextGoal(){
   const docks = structures.filter(s=>s.ship);
   const worst = docks.length ? Math.max(...docks.map(structExposure)) : 0;
   if(trade < 0.03) return ['No ships are calling — your town has stopped growing', 'bad'];
+  if(population > 4 && trade < population/55)
+    return ['Your town has outgrown its harbour — it needs more ships, or bigger ones', 'bad'];
   if(worst > 0.55 && !structures.some(s=>s.blocks))
     return ['Your docks are wide open — a Breakwater makes a lee', 'bad'];
   if(population >= capacity - 0.01)
@@ -1473,10 +1554,14 @@ function refreshHUD(){
   $('#popTier').textContent = tierOf(pop).name;
   $('#popCap').textContent = `${capacity} berth${capacity===1?'':'s'}`;
   $('#popFill').style.width = (capacity ? Math.min(100, pop/capacity*100) : 0) + '%';
-  $('#tradeV').innerHTML = trade > 0.55 ? '<span style="color:var(--gold)">brisk</span>'
-                         : trade > 0.18 ? 'steady'
-                         : trade > 0.02 ? '<span style="color:var(--warn)">slow</span>'
-                                        : '<span style="color:var(--bad)">no ships</span>';
+  // Trade is now relative to what the town NEEDS, so show it that way — "brisk"
+  // means nothing if your town outgrew it.
+  const need = population/55;
+  $('#tradeV').innerHTML = trade < 0.02 ? '<span style="color:var(--bad)">no ships</span>'
+    : trade > need*1.4 ? '<span style="color:var(--gold)">booming</span>'
+    : trade > need     ? 'growing'
+    : population > 0   ? '<span style="color:var(--warn)">outgrown — needs more ships</span>'
+                       : 'steady';
   $('#coin').textContent = Math.round(coin).toLocaleString();
   $('#season').textContent = SEASONS[seasonI].name;
   const ph = weatherPhase();
@@ -1880,10 +1965,15 @@ function rebuildSmoke(){
   smoke.frustumCulled = false;
   scene.add(smoke);
   const r = mulberry32(7);
-  for(const h of homes) for(let k=0;k<SMOKE_PER;k++)
-    smokePuffs.push({ x:wx(h.x0)+(h.w-1)*CS/2 + h.w*CS*0.19,
-                      z:wz(h.z0)+(h.h-1)*CS/2 + h.h*CS*0.16,
-                      t:r(), sp:0.30+r()*0.16, drift:r()*6.28 });
+  for(const h of homes){
+    // follow the chimney this cottage actually rolled, not a fixed offset
+    const ca = h.smokeAt || [h.w*CS*0.19, 2.35, h.h*CS*0.16];
+    for(let k=0;k<SMOKE_PER;k++)
+      smokePuffs.push({ x:wx(h.x0)+(h.w-1)*CS/2 + ca[0],
+                        z:wz(h.z0)+(h.h-1)*CS/2 + ca[2],
+                        y0:ca[1]+0.3,
+                        t:r(), sp:0.30+r()*0.16, drift:r()*6.28 });
+  }
 }
 function updateSmoke(dt){
   if(!smoke) return;
@@ -1894,7 +1984,7 @@ function updateSmoke(dt){
     const rise = p.t*4.4;
     const sc = 0.35 + p.t*2.1;
     _v3.set(p.x - wind[0]*rise*gust*0.55 + Math.sin(p.drift+p.t*4)*0.16,
-            2.35 + rise,
+            (p.y0 ?? 2.35) + rise,
             p.z - wind[1]*rise*gust*0.55);
     _q.copy(camera.quaternion);                 // billboard
     _m4.compose(_v3, _q, _s3.set(sc,sc,sc));
