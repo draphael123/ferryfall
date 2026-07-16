@@ -257,10 +257,10 @@ const SHIPS = {
 // Wind turns with the year. This season's lee is next season's weather side —
 // so no position is permanently safe, and that's the whole point of breakwaters.
 const SEASONS = [
-  { name:'Summer', dir:[0,-1],  strength:0.45, tint:0xffe0a0, fog:0x9dc0cf },
-  { name:'Autumn', dir:[-1,-0.3],strength:1.0, tint:0xffcf92, fog:0x8fa5ad },
-  { name:'Winter', dir:[0.2,1], strength:1.35, tint:0xbcd4ee, fog:0x8093a3 },
-  { name:'Spring', dir:[0.9,0.5],strength:0.7, tint:0xd8ecc8, fog:0x9fbcc0 },
+  { name:'Summer', dir:[0,-1],   strength:0.45, tint:0xffe0a0, fog:0xd6e6ea, sky:0x3f7fae },
+  { name:'Autumn', dir:[-1,-0.3],strength:1.0,  tint:0xffcf92, fog:0xd8cfb8, sky:0x5b7f9c },
+  { name:'Winter', dir:[0.2,1],  strength:1.35, tint:0xbcd4ee, fog:0xb9c6d2, sky:0x4a6684 },
+  { name:'Spring', dir:[0.9,0.5],strength:0.7,  tint:0xd8ecc8, fog:0xd2e2dc, sky:0x4c86a6 },
 ];
 const STORM_EVERY = 95, STORM_LEN = 22;   // seconds
 
@@ -283,7 +283,7 @@ function makeNoise(seed){
 // ═════════════════════════════════════════════════════════════════════ world
 let H=new Float32Array(N*N), H0=new Float32Array(N*N);
 let occ=new Int32Array(N*N).fill(-1);
-let structures=[], banks=[], seed=5, uidNext=1;
+let structures=[], banks=[], seed=5, uidNext=1, home=null;
 
 const idx=(ix,iz)=>iz*N+ix;
 const inGrid=(ix,iz)=>ix>=0&&iz>=0&&ix<N&&iz<N;
@@ -336,7 +336,7 @@ function buildSea(s){
         const want = lerp(top, -8.2, t);
         if(want > H[i]) H[i] = want;
       }
-    banks.push({ ix:cx, iz:cz, R });
+    banks.push({ ix:cx, iz:cz, R, isle:false });
   }
 
   // ── a couple of islands, riding on the shoals (as real ones do) ─────────
@@ -345,6 +345,7 @@ function buildSea(s){
   const isles=[0,2];
   for(const k of isles){
     const b=banks[k]; if(!b) continue;
+    b.isle = true;                       // home shoal must be a clear one
     const ox=Math.round((rnd()-0.5)*5), oz=Math.round((rnd()-0.5)*5);
     const cx=b.ix+ox, cz=b.iz+oz, R=2.5+rnd()*2;
     for(let iz=Math.max(0,cz-14); iz<Math.min(N,cz+14); iz++)
@@ -442,8 +443,28 @@ renderer.toneMappingExposure = 1.12;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x9dc0cf);
-scene.fog = new THREE.Fog(0x9dc0cf, 150, 400);
+// Tight on purpose: the fog has to swallow the seam where the playable grid ends
+// and the open-sea ring begins, well before the eye can find it. Haze is cheaper
+// than geometry and it's what makes the sea feel like it keeps going.
+scene.fog = new THREE.Fog(0xd6e6ea, 95, 265);
+
+// ── sky ─────────────────────────────────────────────────────────────────────
+// A flat background colour gives the sea nothing to be lit against and flattens
+// the whole frame. A gradient dome costs one sphere and does most of the work.
+// Colours pass through as THREE.Color (already linear under ColorManagement) and
+// the composer's OutputPass does the encode — matching the fog, which is why the
+// horizon and the fog line up instead of banding against each other.
+const skyMat = new THREE.ShaderMaterial({
+  side:THREE.BackSide, depthWrite:false, fog:false,
+  uniforms:{ top:{value:new THREE.Color(0x3f7fae)}, bot:{value:new THREE.Color(0xd6e6ea)} },
+  vertexShader:`varying float vY;
+    void main(){ vY=normalize(position).y; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`uniform vec3 top; uniform vec3 bot; varying float vY;
+    void main(){ gl_FragColor=vec4(mix(bot, top, smoothstep(-0.02, 0.55, vY)), 1.0); }`,
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(460, 24, 16), skyMat);
+sky.frustumCulled = false;
+scene.add(sky);
 const camera = new THREE.PerspectiveCamera(30, innerWidth/innerHeight, 0.5, 700);
 camera.position.set(-60, 72, 92);
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -453,6 +474,12 @@ controls.maxPolarAngle = Math.PI*0.47;
 controls.minDistance = 20; controls.maxDistance = 240;
 
 const hemi = new THREE.HemisphereLight(0xbdd8ea, 0x3a4a56, 0.95); scene.add(hemi);
+// A second, tight, low light purely to strike a glint off the water. Flat teal
+// with no specular streak is what reads as plastic; the sun's path on the sea is
+// most of what says "this is water" at a glance.
+const glint = new THREE.DirectionalLight(0xfff2d0, 0.75);
+glint.position.set(90, 22, -70);
+scene.add(glint);
 const key = new THREE.DirectionalLight(0xffe0a0, 2.7);
 key.position.set(-70,86,50); key.castShadow = true;
 key.shadow.mapSize.set(2048,2048);
@@ -488,9 +515,13 @@ function paintBed(){
   for(let i=0;i<N*N;i++){
     const h=H[i]; pos[i*3+1]=h;
     const a=h-WL;
-    if(a>0.5)       _c.copy(C_GRASS).lerp(C_ROCK, smoothstep(0.5,4,a));
-    else if(a>-1.4) _c.copy(C_SAND);
-    else            _c.copy(C_BED).lerp(C_BEDD, smoothstep(-2,-9,a));
+    // Ramp sand→seabed over metres, not at a hard −1.4 cut. A step lands on cell
+    // boundaries and marching-squares the whole coastline into a sawtooth.
+    if(a>0.5) _c.copy(C_GRASS).lerp(C_ROCK, smoothstep(0.5,4,a));
+    else {
+      _c.copy(C_SAND).lerp(C_BED, smoothstep(-0.6, -3.4, a));
+      if(a < -3.0) _c.lerp(C_BEDD, smoothstep(-3.0, -9, a));
+    }
     col[i*3]=_c.r; col[i*3+1]=_c.g; col[i*3+2]=_c.b;
   }
   bedGeo.attributes.position.needsUpdate = true;
@@ -501,7 +532,7 @@ function paintBed(){
 // ── sea ─────────────────────────────────────────────────────────────────────
 const seaGeo = new THREE.BufferGeometry();
 {
-  const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*4), ind=[];
+  const pos=new Float32Array(N*N*3), col=new Float32Array(N*N*4), dep=new Float32Array(N*N), ind=[];
   for(let iz=0;iz<N;iz++) for(let ix=0;ix<N;ix++){ const i=idx(ix,iz);
     pos[i*3]=wx(ix); pos[i*3+2]=wz(iz); }
   for(let iz=0;iz<N-1;iz++) for(let ix=0;ix<N-1;ix++){
@@ -510,21 +541,76 @@ const seaGeo = new THREE.BufferGeometry();
   }
   seaGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
   seaGeo.setAttribute('color', new THREE.BufferAttribute(col,4));
+  seaGeo.setAttribute('aDepth', new THREE.BufferAttribute(dep,1));  // → surf in the shader
   seaGeo.setIndex(ind);
   seaGeo.computeVertexNormals();   // MANDATORY: no normals ⇒ zero normal ⇒ black sea
 }
 const uTime={value:0}, uSwell={value:0};
 const seaMat = new THREE.MeshStandardMaterial({ vertexColors:true, transparent:true,
-  roughness:0.24, metalness:0.0, depthWrite:false, side:THREE.DoubleSide });
+  roughness:0.18, metalness:0.0, depthWrite:false, side:THREE.DoubleSide });
 seaMat.onBeforeCompile = sh => {
   sh.uniforms.uTime = uTime; sh.uniforms.uSwell = uSwell;
-  sh.vertexShader = 'uniform float uTime;\nuniform float uSwell;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+  sh.vertexShader = 'uniform float uTime;\nuniform float uSwell;\nattribute float aDepth;\nvarying float vDepth;\n'
+    + sh.vertexShader.replace('#include <begin_vertex>',
     `#include <begin_vertex>
+     vDepth = aDepth;
      float sw = 0.05 + uSwell*0.42;
-     transformed.y += sin(transformed.x*0.28 + uTime*1.5)*sw
-                    + sin(transformed.z*0.36 - uTime*1.9)*sw*0.8;`);
+     // shallow water doesn't heave — damp the swell as it shoals, or the surf
+     // line detaches from the sand and the whole shoal looks like it's floating
+     float shoalDamp = smoothstep(0.0, 2.5, aDepth);
+     transformed.y += (sin(transformed.x*0.28 + uTime*1.5)*sw
+                    +  sin(transformed.z*0.36 - uTime*1.9)*sw*0.8) * shoalDamp;`)
+    .replace('#include <beginnormal_vertex>',
+    `#include <beginnormal_vertex>
+     // Derive the surface normal from the wave analytically. The geometry normals
+     // are all straight up, so a low-roughness sea gives ONE huge smooth specular
+     // blob instead of glitter — which is exactly what a flat plastic sheet looks
+     // like. The high-frequency terms below never displace anything; they exist
+     // purely to break that blob into a sun path.
+     float sw0 = 0.05 + uSwell*0.42;
+     float dmp0 = smoothstep(0.0, 2.5, aDepth);
+     // Frequencies MUST stay well under Nyquist for the 1.8 m vertex spacing
+     // (π/1.8 ≈ 1.75 rad/m). At 1.10 and 0.95 the normal aliases and the sun path
+     // turns into a pixel grid — it reads as a rendering artifact, not sparkle.
+     float dNx = ( cos(position.x*0.28 + uTime*1.50)*0.28*sw0
+                 + cos(position.x*0.52 + uTime*2.70)*0.52*0.045
+                 + cos(position.z*0.41 + uTime*2.10)*0.41*0.032 ) * dmp0;
+     float dNz = ( -cos(position.z*0.36 - uTime*1.90)*0.36*sw0*0.8
+                 +  cos(position.z*0.47 - uTime*3.10)*0.47*0.042
+                 +  cos(position.x*0.33 - uTime*2.40)*0.33*0.030 ) * dmp0;
+     objectNormal = normalize(vec3(-dNx, 1.0, -dNz));`);
+  // Surf. Bands run along the depth contours and crawl shoreward, which means
+  // they trace a bright animated line around EXACTLY the water you can found on.
+  // The prettiest thing here is also the clearest bit of teaching in the game.
+  sh.fragmentShader = 'uniform float uTime;\nuniform float uSwell;\nvarying float vDepth;\n'
+    + sh.fragmentShader.replace('#include <color_fragment>',
+    `#include <color_fragment>
+     // Surf rings the shoal RIM, not its crest. Over the crest the water is only
+     // ~46% opaque above pale sand, so white foam there is white-on-cream and
+     // simply doesn't exist. Band it where the water is still teal (~0.9–3 m) and
+     // it reads — and it lands exactly on the line between "can found" and
+     // "can't", which is the thing a new player most needs to see.
+     float ring  = smoothstep(3.3, 1.15, vDepth) * smoothstep(0.35, 1.05, vDepth);
+     float bands = 0.5 + 0.5*sin(vDepth*8.5 - uTime*1.7);
+     float foam  = ring * (0.3 + 0.7*bands) * (0.55 + uSwell*0.75);
+     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95,0.99,1.0), clamp(foam,0.0,0.95));`);
 };
 const seaMesh = new THREE.Mesh(seaGeo, seaMat); seaMesh.renderOrder = 2; scene.add(seaMesh);
+
+// The playable grid is only ~230 m across, so without this you can SEE THE EDGE
+// OF THE WORLD — the sea simply stops and sky begins, which turns "wide open
+// ocean" into a bathtub. A big dumb disc underneath carries the eye to the
+// horizon and the fog does the rest.
+// An ANNULUS starting just inside the grid edge, not a disc. A disc spans the
+// whole map at a fixed height and would sit ABOVE the shoals (crests are only
+// ~0.35 m down), hiding the one thing you can build on. Colour matches C_DEEP so
+// the grid's deep edge and the open sea meet with no seam.
+const openSea = new THREE.Mesh(new THREE.RingGeometry(N*CS*0.485, 460, 96, 1),
+  new THREE.MeshStandardMaterial({ color:0x123a5a, roughness:0.22, metalness:0.0 }));
+openSea.rotation.x = -Math.PI/2;
+openSea.position.y = WL - 0.04;
+openSea.renderOrder = 1;
+scene.add(openSea);
 
 const C_SHOAL=new THREE.Color(0xe8dcb4), C_SHALLOW=new THREE.Color(0x5fc4b8);
 const C_MID=new THREE.Color(0x2a7a94), C_DEEP=new THREE.Color(0x123a5a);
@@ -533,11 +619,17 @@ const C_EXPOSED=new THREE.Color(0xd86a5a);
 
 function paintSea(){
   const col=seaGeo.attributes.color.array;
+  const dep=seaGeo.attributes.aDepth.array;
   for(let i=0;i<N*N;i++){
-    const d=depthAt(i); let a=0;
-    if(d<=0.02){ a=0; }
+    const d=depthAt(i);
+    dep[i] = Math.max(0, d);
+    let a=0;
+    if(d<=0){ a=0; }
     else{
-      a = clamp(0.4 + d*0.12, 0, 0.9);
+      // Ramp the alpha in over the first 0.35 m instead of cutting at 0.02. A hard
+      // cut lands on cell boundaries and stair-steps the entire coastline into a
+      // sawtooth — the most obvious artifact in the game.
+      a = clamp(0.4 + d*0.12, 0, 0.9) * smoothstep(0, 0.6, d);
       if(d<=ANCHOR_MAX)   _c.copy(C_SHOAL);
       else if(d<2.6)      _c.copy(C_SHOAL).lerp(C_SHALLOW, (d-ANCHOR_MAX)/1.6);
       else if(d<6.5)      _c.copy(C_SHALLOW).lerp(C_MID, (d-2.6)/3.9);
@@ -550,6 +642,7 @@ function paintSea(){
     col[i*4]=_c.r; col[i*4+1]=_c.g; col[i*4+2]=_c.b; col[i*4+3]=a;
   }
   seaGeo.attributes.color.needsUpdate = true;
+  seaGeo.attributes.aDepth.needsUpdate = true;
   seaMesh.position.y = WL;
 }
 
@@ -971,10 +1064,22 @@ function renderTut(){
 
 // ══════════════════════════════════════════════════════════════════ settings
 const OPTS={ ts:1, shadows:1 };
-const TS_PRESET=[{b:1,s:0},{b:0.13,s:5.2},{b:0.08,s:8.5}];
-function applyOpts(){
+const TS_PRESET=[{b:1,s:0},{b:0.15,s:5.0},{b:0.10,s:8.0}];
+// Fake-miniature only reads when the subject is SMALL in frame. Pinned at a 15%
+// sharp band it blurs ~90% of a zoomed-out view, which doesn't look like a
+// diorama — it looks like a broken lens, and it was the first thing Daniel said.
+// So widen the band and drop the blur as the camera pulls back: strong tilt-shift
+// while you're working, almost none when you're reading the whole sea.
+function updateTilt(){
+  if(OPTS.ts===0){ for(const q of [tsH,tsV]) q.uniforms.strength.value=0; return; }
   const p=TS_PRESET[OPTS.ts];
-  for(const q of [tsH,tsV]){ q.uniforms.band.value=p.b; q.uniforms.strength.value=p.s; }
+  const dist=camera.position.distanceTo(controls.target);
+  const t=clamp((dist-34)/(190-34), 0, 1);
+  const band=lerp(p.b, 0.60, t), str=lerp(p.s, 0.9, t);
+  for(const q of [tsH,tsV]){ q.uniforms.band.value=band; q.uniforms.strength.value=str; }
+}
+function applyOpts(){
+  updateTilt();
   renderer.shadowMap.enabled=!!OPTS.shadows; key.castShadow=!!OPTS.shadows;
   scene.traverse(o=>{ if((o.isMesh||o.isInstancedMesh)&&o.material) o.material.needsUpdate=true; });
   localStorage.setItem('ferryfall.opts', JSON.stringify({...OPTS, ex:showExposure, tut:tutOn}));
@@ -1069,6 +1174,28 @@ const ghost=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
   new THREE.MeshBasicMaterial({ color:0x9fe0a0, transparent:true, opacity:0.42, toneMapped:false }));
 ghost.visible=false; ghost.renderOrder=4; scene.add(ghost);
 
+// "Start here." Opening on 8 m of open water with no focal point was the other
+// half of "unclear what to do" — the one thing you can build on wasn't even on
+// screen. This ring sits on the home shoal until you place your first thing.
+// A thin annulus, not a disc. At 1→1.35 it fills as a solid pancake and reads as
+// terrain rather than as a marker.
+// Orange, not gold — gold on pale sand is invisible, which defeats the purpose.
+const homeRing=new THREE.Mesh(new THREE.RingGeometry(1,1.07,64),
+  new THREE.MeshBasicMaterial({ color:0xff7a2e, transparent:true, opacity:0.75,
+                                side:THREE.DoubleSide, toneMapped:false }));
+homeRing.rotation.x=-Math.PI/2; homeRing.visible=false; homeRing.renderOrder=5;
+scene.add(homeRing);
+function updateHomeRing(){
+  const show = running && structures.length===0 && home;
+  homeRing.visible = !!show;
+  if(!show) return;
+  const r = home.R*0.7*CS;
+  const pulse = 1 + Math.sin(performance.now()/520)*0.03;
+  homeRing.scale.set(r*pulse, r*pulse, 1);
+  homeRing.position.set(wx(home.ix), WL+0.4, wz(home.iz));
+  homeRing.material.opacity = 0.45 + Math.sin(performance.now()/520)*0.2;
+}
+
 function pick(e){
   ptr.x=(e.clientX/innerWidth)*2-1; ptr.y=-(e.clientY/innerHeight)*2+1;
   ray.setFromCamera(ptr,camera);
@@ -1138,7 +1265,10 @@ $('#repairBtn').onclick = repairAll;
 function applySeason(){
   const S=SEASONS[seasonI];
   key.color.setHex(S.tint);
-  scene.fog.color.setHex(S.fog); scene.background.setHex(S.fog);
+  scene.fog.color.setHex(S.fog);
+  // The horizon must match the fog exactly or the sea meets the sky at a seam.
+  skyMat.uniforms.bot.value.setHex(S.fog);
+  skyMat.uniforms.top.value.setHex(S.sky);
   paintSea();          // the wind moved → the shelter map moved
   refreshHUD(); renderDocks();
 }
@@ -1185,12 +1315,14 @@ let last=performance.now(), hudT=0;
 function frame(){
   const now=performance.now(), dt=Math.min((now-last)/1000, 0.05); last=now;
   resize(); uTime.value=now/1000;
+  updateTilt();                 // the sharp band tracks the zoom, every frame
   if(running){
     step(dt);
     hudT += dt;
     if(hudT > 0.5){ hudT=0; refreshHUD(); renderDocks(); }   // fetch is a raymarch; don't do it every frame
   }
   if(hintT && clock>hintT){ $('#hint').classList.remove('show'); hintT=0; }
+  updateHomeRing();
   controls.update(); composer.render();
   requestAnimationFrame(guarded);
 }
@@ -1208,6 +1340,18 @@ function init(s){
   coin=START_COIN; clock=0; landed=0; stormT=0; swell=0; seasonI=0;
   paintBed(); paintSea();
   restaff(); applySeason();
+  // Frame the home shoal. Targeting the map centre put 8 m of empty ocean in the
+  // middle of the screen with every shoal off in the corners — you opened the
+  // game looking at the one place you cannot build.
+  home = banks.find(b=>!b.isle) || banks[0];
+  if(home){
+    // Frame the shoal AND the water you'll reach into. A shoal is ~R*CS ≈ 18 units
+    // of radius, so sitting 45 units away fills the screen with sand and hides the
+    // deep water that's the entire point.
+    controls.target.set(wx(home.ix), 0, wz(home.iz));
+    camera.position.set(wx(home.ix)-46, 52, wz(home.iz)+58);
+    controls.update();
+  }
   renderPalette(); renderDocks(); refreshHUD();
 }
 try{
