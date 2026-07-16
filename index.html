@@ -27,7 +27,20 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
     backdrop-filter:blur(9px);box-shadow:0 8px 30px rgba(0,0,0,.5)}
 
-  #ledger{top:14px;left:14px;padding:11px 14px;min-width:224px}
+  #ledger{top:14px;left:14px;padding:11px 14px;min-width:232px}
+  /* Population is the SCORE, so it gets the size. Coin is a means; it demoted
+     itself to a row the moment the goal became people. */
+  #popBox{padding:1px 0 3px}
+  #popNum{font-size:34px;line-height:1;color:var(--gold);font-variant-numeric:tabular-nums}
+  #popNum.up{animation:popbump .5s ease-out}
+  #popNum.down{animation:popdrop .5s ease-out}
+  @keyframes popbump{0%{transform:scale(1)}35%{transform:scale(1.16);color:#fff}100%{transform:scale(1)}}
+  @keyframes popdrop{0%{transform:scale(1)}35%{transform:scale(.88);color:var(--bad)}100%{transform:scale(1)}}
+  #popMeta{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:2px}
+  #popTier{font-size:12.5px;opacity:.8;letter-spacing:.02em}
+  #popCap{font-size:10.5px;opacity:.42;font-variant-numeric:tabular-nums}
+  #popBar{height:4px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:6px}
+  #popFill{display:block;height:100%;width:0%;background:var(--gold);transition:width .5s ease}
   #ledger .row{display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:3px 0}
   #ledger .k{opacity:.62}
   #ledger .v{font-variant-numeric:tabular-nums}
@@ -111,6 +124,18 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   .tutfocus{ animation:tutpulse 1.5s ease-in-out infinite; border-radius:6px }
   .srow .tutfocus, #ledger .tutfocus{ padding:1px 4px; margin:-1px -4px }
 
+  /* An ending, not a game-over. You reached the thing you were playing for; the
+     sea is still there and you can carry on if you want. */
+  #win{position:fixed;inset:0;z-index:26;display:none;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at 50% 45%,rgba(10,26,38,.72),rgba(4,10,16,.94));
+    backdrop-filter:blur(4px)}
+  #win.show{display:flex}
+  #winIn{width:430px;padding:28px 32px;text-align:center}
+  .wtag{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold);opacity:.75}
+  #winIn h2{margin:6px 0 14px;font-size:27px;font-weight:400;letter-spacing:.03em}
+  #winIn p{font-size:14px;line-height:1.6;opacity:.85;margin:0 0 10px}
+  #winIn .wsub{opacity:.5;font-size:12.5px;font-style:italic}
+
   #settings{position:fixed;inset:0;z-index:25;display:none;align-items:center;justify-content:center;
     background:rgba(4,10,16,.72);backdrop-filter:blur(4px)}
   #settings.show{display:flex}
@@ -158,10 +183,16 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
 </style>
 
 <div class="hud panel" id="ledger">
+  <div id="popBox">
+    <div id="popNum">0</div>
+    <div id="popMeta"><span id="popTier">An anchorage</span><span id="popCap">0 berths</span></div>
+    <div id="popBar"><i id="popFill"></i></div>
+  </div>
+  <div class="sep"></div>
+  <div class="row"><span class="k">Trade</span><span class="v" id="tradeV">—</span></div>
   <div class="row"><span class="k">Coin</span><span class="v" id="coin">0</span></div>
   <div class="row"><span class="k">Season</span><span class="v" id="season">Summer</span></div>
   <div class="row"><span class="k">Weather</span><span class="v" id="weather">Fair</span></div>
-  <div class="sep"></div>
   <div class="row"><span class="k">Ships landed</span><span class="v" id="landed">0</span></div>
   <div class="row"><span class="k">Crew</span><span class="v" id="staff">0 / 0</span></div>
   <div class="row"><span class="k">Worst exposure</span><span class="v" id="worst">—</span></div>
@@ -202,6 +233,14 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   <button class="wide" id="setNewSea">New sea (keeps nothing)</button>
   <button class="wide danger" id="setQuit">Save &amp; return to title</button>
   <button class="wide" id="setClose">Back to the water</button>
+</div></div>
+
+<div id="win"><div class="panel" id="winIn">
+  <div class="wtag">A port</div>
+  <h2>One hundred souls</h2>
+  <p id="winBody"></p>
+  <p class="wsub">There was nothing here but a shoal and a sea that wanted it back.</p>
+  <button class="wide" id="winOn">Keep building</button>
 </div></div>
 
 <div id="card"><div id="cardIn">
@@ -863,7 +902,10 @@ function place(k, x0, z0){
   const s=addStructRaw(k,x0,z0);
   coin -= s.cost;
   if(s.blocks) paintSea();            // a breakwater rewrites the shelter map
-  if(s.key==='cottage') rebuildSmoke();
+  // A cottage arrives with a family in it. Without this seed, capacity exists but
+  // nobody's home, the first dock can't be crewed, and the trickle takes a minute
+  // to unblock the game — a bad first impression for the core loop.
+  if(s.key==='cottage'){ rebuildSmoke(); population = Math.min(capacity + s.res, population + 1); }
   restaff(); refreshHUD(); renderPalette(); renderDocks(); tickTutorial(); checkComms();
   return s;
 }
@@ -1030,10 +1072,27 @@ function posStruct(s){
   s.mesh.rotation.y = list * 0.12 * s.lean;
 }
 
-let residents=0, staffNeed=0;
+// THE SCORE. Population is not bought — a cottage is a berth, not a person.
+// People come because the harbour is worth living in (trade), and they leave when
+// the sea proves it isn't. That chains the score to the entire game:
+//   population ← trade ← docks ← deep water ← exposure ← the storm.
+let population=0, capacity=0, staffNeed=0, trade=0, popT=0;
+const TIERS = [
+  { n:0,   name:'An anchorage' },
+  { n:10,  name:'A camp' },
+  { n:25,  name:'A village' },
+  { n:50,  name:'A town' },
+  { n:100, name:'A port' },
+];
+const tierOf = p => TIERS.reduce((a,t)=> p>=t.n ? t : a, TIERS[0]);
+let tierSeen = 0;
+
+let residents=0;   // kept as an alias for population — staffing reads it
 function restaff(){
   const prevRes = residents;
-  residents = structures.reduce((a,s)=>a+s.res,0);
+  capacity = structures.reduce((a,s)=>a+s.res,0);
+  if(population > capacity) population = capacity;   // no berth, no berth-holder
+  residents = Math.floor(population);
   let pool=residents; staffNeed=0;
   for(const s of structures){
     if(!s.staff){ s.open=true; continue; }
@@ -1168,6 +1227,9 @@ function stepShip(sh, dt){
     sh.dwell -= dt;
     if(sh.dwell<=0){
       coin += sh.S.cargo; landed++;
+      // Bigger ships mean more prosperity, so the reach out into the weather is
+      // what actually grows the town — not just what pays for it.
+      trade = Math.min(1.2, trade + sh.S.cargo/110);
       if(sh.dock.key==='berth') clippersLanded++;
       sh.phase='out'; sh.pts.reverse(); sh.seg=0; sh.frac=0;
       refreshHUD(); checkComms();
@@ -1259,6 +1321,10 @@ function stepWeather(dt){
     while(adrift.length){ for(const a of adrift){ removeStruct(a, null); n++; } recomputeAnchors();
                           adrift = structures.filter(x=>!x.anchored); }
     flash(`<span class="bad">The sea took your ${lost.name}</span>${n?` — and ${n} more went with it`:''}.`, true);
+    // Losing a dock isn't an expense, it's a reason to leave. Scale it with how
+    // much went: one pontoon shakes people, half your harbour empties it.
+    peopleLeave(2 + n*2, 'the sea took the harbour apart');
+    trade = Math.max(0, trade - 0.4);
   }
 }
 function repairAll(){
@@ -1273,6 +1339,47 @@ function repairAll(){
 }
 
 // ═══════════════════════════════════════════════════════════════════════ sim
+// Trade decays, so prosperity is about ships landing NOW — a harbour that stops
+// working stops growing. Each landing shoves it back up.
+function stepPopulation(dt){
+  // EXPONENTIAL decay, not linear. Trade arrives as discrete spikes ~40 s apart
+  // (a coaster is +0.145), so ANY linear rate either wipes it between ships —
+  // trade reads 0 and growth is pure trickle, the design inert — or never decays
+  // at all. Exponential gives a real steady state: peak = input / (1 - e^(-T/τ)),
+  // so at τ=60 one jetty holds ≈0.30 and a busy harbour ≈0.9. This is "how busy
+  // has it been lately", which is exactly what should attract people.
+  trade *= Math.exp(-dt/60);
+  if(trade < 0.001) trade = 0;
+  const room = capacity - population;
+  if(room > 0){
+    // The trickle (0.02) exists only to break a deadlock: crew staffs the dock,
+    // the dock brings the ships, the ships bring the crew. Kept slow — 1 soul per
+    // 50 s — so it can't substitute for trade. (You can't buy the berths without
+    // trading anyway: 100 souls needs 25 cottages = 3,750 coin off a 900 grant.)
+    popT += dt * (0.02 + trade*0.22);
+    while(popT >= 1 && population < capacity){ popT -= 1; population++; onPopChange(); }
+    if(popT > 1) popT = 1;
+  } else popT = 0;
+}
+function onPopChange(){
+  const t = tierOf(population);
+  if(t.n > tierSeen){
+    tierSeen = t.n;
+    flash(`<b>${t.name}.</b> ${population} souls call this water home.`);
+    if(t.n >= 100) winPort();
+  }
+  restaff(); checkComms();
+}
+// People leave when the sea takes something. This is what makes a storm cost you
+// the thing you're actually playing for, instead of just coin.
+function peopleLeave(n, why){
+  const before = Math.floor(population);
+  population = Math.max(0, population - n);
+  const gone = before - Math.floor(population);
+  if(gone > 0) flash(`<span class="bad">${gone} left on the morning boat</span> — ${why}.`, true);
+  restaff();
+}
+
 function step(dt){
   clock += dt;
   // Safety on the scripted first storm: the tutorial arms it, but a player who
@@ -1280,6 +1387,7 @@ function step(dt){
   // world where the weather simply never happens.
   if(stormHeld && (!tutOn || clock > 240)) armFirstStorm();
   stepWeather(dt);
+  stepPopulation(dt);
   for(const s of structures){
     if(!s.ship || !s.open) continue;
     s.shipT += dt;
@@ -1326,28 +1434,49 @@ const DIRNAME = () => {
 // The answer to "so what am I doing?", at every moment, forever. Ordered by
 // urgency: something actively being lost beats something merely missing. Reads
 // live state, so it can never tell you to do a thing you've already done.
+// Every branch here now points, eventually, at PEOPLE — because that's the goal.
+// Ordered by urgency: something actively being lost beats something merely missing.
 function nextGoal(){
   if(!structures.length) return ['Found a Pontoon on the pale shoal', 'warn'];
   const hurt = structures.filter(s=>s.integrity < 0.6);
   if(hurt.length && weatherPhase()!=='storm')
-    return [`Mend ${hurt.length===1?hurt[0].name:hurt.length+' buildings'} before the next blow`, 'bad'];
-  if(!structures.some(s=>s.key==='cottage')) return ['Build a Raft Cottage — you need crew', 'warn'];
+    return [`Mend ${hurt.length===1?hurt[0].name:hurt.length+' buildings'} — losing one empties the berths`, 'bad'];
+  if(!structures.some(s=>s.key==='cottage')) return ['Build a Raft Cottage — berths for people to live in', 'warn'];
   const shut = structures.filter(s=>s.ship && !s.open);
   if(shut.length) return [`${shut[0].name} is shut — ${staffNeed-residents} crew short`, 'bad'];
-  if(!structures.some(s=>s.ship)) return ['Reach deep water and build a Jetty', 'warn'];
+  if(!structures.some(s=>s.ship)) return ['Reach deep water and build a Jetty — no ships, no growth', 'warn'];
   const docks = structures.filter(s=>s.ship);
   const worst = docks.length ? Math.max(...docks.map(structExposure)) : 0;
+  if(trade < 0.03) return ['No ships are calling — your town has stopped growing', 'bad'];
   if(worst > 0.55 && !structures.some(s=>s.blocks))
     return ['Your docks are wide open — a Breakwater makes a lee', 'bad'];
+  if(population >= capacity - 0.01)
+    return [`Every berth is full — build cottages to make room for more`, 'warn'];
   if(!docks.some(s=>s.key==='trader'||s.key==='berth'))
-    return ['Reach further out — a Trader Dock takes bigger ships', 'warn'];
+    return ['Reach further out — bigger ships mean a busier town', 'warn'];
   if(!docks.some(s=>s.key==='berth'))
-    return ['A Deep Berth in 7 m lands clippers — the best money there is', 'warn'];
-  if(worst > 0.55) return ['Shelter the deep berths, or the sea will take them', 'bad'];
-  return ['Grow the harbour, and keep the sea off it', 'calm'];
+    return ['A Deep Berth in 7 m lands clippers — nothing grows a port faster', 'warn'];
+  if(worst > 0.55) return ['Shelter the deep berths, or the sea will empty them', 'bad'];
+  return [`Keep the ships coming — ${Math.max(0, Math.ceil(capacity-population))} berths still to fill`, 'calm'];
 }
 
+let popShown = 0;
 function refreshHUD(){
+  const pop = Math.floor(population);
+  const pn = $('#popNum');
+  if(pop !== popShown){
+    pn.textContent = pop;
+    pn.classList.remove('up','down'); void pn.offsetWidth;   // restart the animation
+    pn.classList.add(pop > popShown ? 'up' : 'down');
+    popShown = pop;
+  }
+  $('#popTier').textContent = tierOf(pop).name;
+  $('#popCap').textContent = `${capacity} berth${capacity===1?'':'s'}`;
+  $('#popFill').style.width = (capacity ? Math.min(100, pop/capacity*100) : 0) + '%';
+  $('#tradeV').innerHTML = trade > 0.55 ? '<span style="color:var(--gold)">brisk</span>'
+                         : trade > 0.18 ? 'steady'
+                         : trade > 0.02 ? '<span style="color:var(--warn)">slow</span>'
+                                        : '<span style="color:var(--bad)">no ships</span>';
   $('#coin').textContent = Math.round(coin).toLocaleString();
   $('#season').textContent = SEASONS[seasonI].name;
   const ph = weatherPhase();
@@ -1420,19 +1549,23 @@ function renderDocks(){
 // game's shape by asking for exactly the things that matter (crew, depth,
 // shelter) in the order they start mattering. Three run at once; finishing one
 // deals the next, so there's always a reason to be doing something.
+// The ladder is the ARC: it walks you 0 → 100 souls, and every rung asks for the
+// thing that actually grows a town at that size. Money is the reward, never the
+// goal — you spend it on more people.
 const COMMS = [
   { id:'first',  t:'Land your first ship',                     ok:()=>landed>=1,  pay:120 },
-  { id:'five',   t:'Land 5 ships',                             ok:()=>landed>=5,  pay:220 },
-  { id:'crew8',  t:'House 8 crew on the shoal',                ok:()=>residents>=8, pay:180 },
+  { id:'pop5',   t:'Bring 5 souls to the shoal',               ok:()=>population>=5, pay:180 },
+  { id:'five',   t:'Land 5 ships',                             ok:()=>landed>=5,  pay:200 },
+  { id:'pop10',  t:'Grow to a camp — 10 souls',                ok:()=>population>=10, pay:280 },
   { id:'trader', t:'Open a Trader Dock (4.5 m)',               ok:()=>structures.some(s=>s.key==='trader'&&s.open), pay:380 },
   { id:'lee',    t:'Get a dock under 20% exposure',            ok:()=>structures.some(s=>s.ship && structExposure(s)<0.20), pay:300 },
-  { id:'mole',   t:'Raise a Breakwater',                       ok:()=>structures.some(s=>s.key==='breakwater'), pay:240 },
+  { id:'pop25',  t:'Grow to a village — 25 souls',             ok:()=>population>=25, pay:520 },
   { id:'ride',   t:'Ride out a storm losing nothing',          ok:()=>stormsRidden>=1, pay:420 },
   { id:'berth',  t:'Open a Deep Berth (7 m)',                  ok:()=>structures.some(s=>s.key==='berth'&&s.open), pay:700 },
   { id:'clip',   t:'Land a clipper',                           ok:()=>clippersLanded>=1, pay:500 },
-  { id:'twenty', t:'Land 20 ships',                            ok:()=>landed>=20, pay:600 },
-  { id:'sound',  t:'Keep every building sound through a storm',ok:()=>stormsRidden>=3, pay:900 },
-  { id:'fifty',  t:'Land 50 ships',                            ok:()=>landed>=50, pay:1400 },
+  { id:'pop50',  t:'Grow to a town — 50 souls',                ok:()=>population>=50, pay:1100 },
+  { id:'sound',  t:'Ride out three storms losing nothing',     ok:()=>stormsRidden>=3, pay:900 },
+  { id:'pop100', t:'Make it a port — 100 souls',               ok:()=>population>=100, pay:2500 },
 ];
 let commActive=[], commDone=[], clippersLanded=0, stormsRidden=0;
 function dealComms(){
@@ -1453,6 +1586,22 @@ function checkComms(){
   }
   dealComms();
 }
+// Deliberately NOT a game-over. You've reached what you were playing for; the sea
+// is still out there and the harbour is still yours. Fires once.
+let won = false;
+function winPort(){
+  if(won) return;
+  won = true;
+  const docks = structures.filter(s=>s.ship).length;
+  const moles = structures.filter(s=>s.blocks).length;
+  $('#winBody').innerHTML =
+    `A hundred people live on water you dredged out of nothing — off ${docks} dock${docks===1?'':'s'}, `
+    + `${moles?`${moles} breakwater${moles===1?'':'s'} of your own making, `:''}`
+    + `and ${landed} ships that came in out of the blue because you gave them somewhere to tie up.`;
+  $('#win').classList.add('show');
+  saveGame(activeSlot);
+}
+
 function renderComms(){
   const el=$('#commList');
   if(!el) return;
@@ -1587,6 +1736,7 @@ function saveGame(slot){
   const data={ v:3, seed, coin, clock, seasonI, landed, stormT,
     held:stormHeld, seen:stormsSeen, rode:stormsRidden, clip:clippersLanded,
     cAct:commActive, cDone:commDone,
+    pop:+population.toFixed(2), trade:+trade.toFixed(3), tier:tierSeen, won,
     structs: structures.map(s=>[s.key, s.x0, s.z0, +s.integrity.toFixed(3)]),
     tut:tutStep, at:Date.now() };
   try{ localStorage.setItem(slotKey(slot), JSON.stringify(data)); return true; }
@@ -1612,6 +1762,8 @@ function loadGame(slot){
   stormsSeen = d.seen||0; tutSeen=-1;
   stormsRidden = d.rode||0; clippersLanded = d.clip||0;
   commActive = d.cAct||[]; commDone = d.cDone||[]; dealComms();
+  population = d.pop||0; trade = d.trade||0; tierSeen = d.tier||0;
+  won = !!d.won; popShown = -1; $('#win').classList.remove('show');
   rebuildSmoke(); seedGulls();
   activeSlot=slot;
   applySeason(); restaff(); renderTut(); renderDocks(); renderPalette();
@@ -2039,6 +2191,8 @@ function init(s){
   coin=START_COIN; clock=0; landed=0; stormT=0; swell=0; seasonI=0;
   stormsSeen=0; stormHeld=true; tutSeen=-1;
   clippersLanded=0; stormsRidden=0; commActive=[]; commDone=[]; dealComms();
+  population=0; capacity=0; trade=0; popT=0; tierSeen=0; popShown=-1; won=false;
+  $('#win').classList.remove('show');
   seedGulls(); rebuildSmoke();
   paintBed(); paintSea();
   restaff(); applySeason();
@@ -2066,6 +2220,7 @@ applyOpts(); renderTut(); renderSlots();
 
 $('#go').onclick=()=>startNew(firstFreeSlot());
 $('#tutSkip').onclick=()=>{ tutOn=false; armFirstStorm(); renderTut(); applyOpts(); };
+$('#winOn').onclick=()=>$('#win').classList.remove('show');
 $('#setClose').onclick=()=>toggleSettings(false);
 $('#setSave').onclick=()=>{ if(saveGame(activeSlot)){ toggleSettings(false); flash('Saved.'); } };
 $('#setNewSea').onclick=()=>{ if(!confirm('Start a brand new sea? This harbour will be lost.')) return;
@@ -2101,7 +2256,13 @@ window.__dbg={
   comms:()=>({ active:commActive, done:commDone, ridden:stormsRidden, clippers:clippersLanded }),
   next:()=>nextGoal()[0],
   tick:()=>{ tickTutorial(); return tutStep; },
+  pop:()=>({ population:+population.toFixed(2), capacity, trade:+trade.toFixed(2),
+             tier:tierOf(population).name, won }),
+  addPop:(n)=>{ population=Math.min(capacity, population+n); restaff(); onPopChange();
+                refreshHUD(); return population; },
   state:()=>({ coin:Math.round(coin), clock:+clock.toFixed(1), landed, weather:weatherPhase(),
+    population:+population.toFixed(1), capacity, tier:tierOf(population).name,
+    trade:+trade.toFixed(2),
     season:SEASONS[seasonI].name, wind:DIRNAME(), residents, staffNeed, ships:ships.length,
     structures: structures.map(s=>({ name:s.name, at:[s.x0,s.z0], open:s.open,
       integrity:+s.integrity.toFixed(2), exposure:+structExposure(s).toFixed(2) })) }),
