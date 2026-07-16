@@ -1,5 +1,25 @@
 # FERRYFALL
 
+**Play: https://ferryfall.vercel.app** · repo `draphael123/ferryfall` (public)
+
+Local: `python -m http.server 5774 -d ferryfall` (launch.json entry `ferryfall`).
+Deploy: `vercel --prod --yes` **from PowerShell, not Bash**. The CLI prints its
+version banner to stderr, so PowerShell reports NativeCommandError / exit 255
+even on success — ignore it and read the output.
+
+## Controls
+
+`1` Build · `2` Dredge · `3` Line · `4` Break up · `5` Look · `S` season ·
+`Esc` settings · `Enter` commit a line
+
+Break up refunds in full, and refuses any cut that would set the rest of the raft
+adrift — so you disassemble outside-in. Shelf pieces self-anchor and are always
+freely removable; only chains out over deep water are load-bearing.
+
+Saves: 3 slots on the title screen, 20 s autosave. The dredged bed is stored as a
+diff against the generated one (dredging is the only thing that edits it), so a
+save is a few hundred cells rather than 14,400 floats.
+
 A cozy city-builder where the city is a river and everything arrives by boat.
 Single-file `index.html`, Three.js via CDN, **port 5774** (`launch.json` entry `ferryfall`).
 
