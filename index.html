@@ -45,6 +45,9 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   #popCap{font-size:10.5px;opacity:.42;font-variant-numeric:tabular-nums}
   #popBar{height:4px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:6px}
   #popFill{display:block;height:100%;width:0%;background:var(--gold);transition:width .5s ease}
+  #tierNext{font-size:10.5px;opacity:.5;margin-top:5px;line-height:1.4}
+  #tierNext .tn{color:var(--gold);opacity:.85}
+  #tierNext b{color:var(--text)}
   #ledger .row{display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:3px 0}
   #ledger .k{opacity:.62}
   #ledger .v{font-variant-numeric:tabular-nums}
@@ -65,6 +68,11 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   .need .nv{width:30px;text-align:right;font-variant-numeric:tabular-nums;opacity:.55;font-size:10px}
   .need.short .nn{color:var(--bad);opacity:1}
   .need.short .nv{color:var(--bad);opacity:1}
+  /* the ledger row IS the info-view button — no extra chrome to explain */
+  #needs{pointer-events:auto}
+  .need{cursor:pointer;padding:1px 4px;margin:0 -4px;border-radius:4px}
+  .need:hover{background:rgba(255,255,255,.06)}
+  .need.viewing{background:rgba(255,201,120,.16);box-shadow:inset 0 0 0 1px rgba(255,201,120,.4)}
 
   #nextRow{display:flex;flex-direction:column;gap:3px;padding:2px 0}
   .nlabel{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;opacity:.42}
@@ -212,6 +220,7 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
     <div id="popNum">0</div>
     <div id="popMeta"><span id="popTier">An anchorage</span><span id="popCap">0 berths</span></div>
     <div id="popBar"><i id="popFill"></i></div>
+    <div id="tierNext"></div>
   </div>
   <div class="sep"></div>
   <div class="row" id="rowTrade" hidden><span class="k">Trade</span><span class="v" id="tradeV">—</span></div>
@@ -330,19 +339,31 @@ const TYPES = {
   // Their real cost is coin and — far more importantly — scarce shoal.
   cistern:  { key:'cistern',  name:'Cistern',      w:2,h:2, need:0.40, cost:170, res:0, staff:0,
               color:0x6f9fb8, tall:1.1,  roof:false, blocks:false, hardy:false,
-              serves:{ water:14 }, hint:'fresh water for 14 · catches the rain' },
+              serves:{ water:14 }, radius:9, hint:'water for 14 within 9 · catches the rain' },
   // 0.85, not 1.2: it still has to stand in real water (you don't fish on sand),
   // but at 1.2 it lived out past the shoal on your pier, so FOOD became a
   // late-game problem gating a town that hasn't built a pier yet.
   fishery:  { key:'fishery',  name:'Fish Stage',   w:2,h:2, need:0.85, cost:190, res:0, staff:0,
               color:0x7d9c6a, tall:0.9,  roof:false, blocks:false, hardy:false,
-              serves:{ food:12 }, hint:'food for 12 · must stand in real water' },
+              serves:{ food:12 }, radius:10, hint:'food for 12 within 10 · must stand in real water' },
   fuelstore:{ key:'fuelstore',name:'Fuel Store',   w:2,h:2, need:0.45, cost:150, res:0, staff:0,
               color:0xb07a44, tall:1.2,  roof:true,  blocks:false, hardy:false,
-              serves:{ warmth:16 }, hint:'fuel for 16 · peat and driftwood' },
+              serves:{ warmth:16 }, radius:8, hint:'fuel for 16 within 8 · peat and driftwood' },
   tavern:   { key:'tavern',   name:'Tavern',       w:3,h:2, need:0.60, cost:340, res:0, staff:0,
               color:0xc2704e, tall:1.9,  roof:true,  blocks:false, hardy:false,
-              serves:{ cheer:22 }, hint:'cheer for 22 · somewhere to be after a shift' },
+              serves:{ cheer:22 }, radius:12, hint:'cheer for 22 within 12 · people will walk for a drink' },
+  // Shoal is the real constraint, so DENSITY is the real upgrade: 9 berths in the
+  // footprint a cottage takes. The village question becomes "build up, or go take
+  // another shoal?" — the expansion decision finally given teeth.
+  longhouse:{ key:'longhouse',name:'Longhouse',    w:2,h:2, need:0.55, cost:380, res:9, staff:0,
+              color:0x9a5a48, tall:2.1,  roof:true,  blocks:false, hardy:false,
+              hint:'+9 berths in a cottage\'s footprint' },
+  warehouse:{ key:'warehouse',name:'Warehouse',    w:3,h:2, need:1.50, cost:430, res:0, staff:2,
+              color:0x8a7a5e, tall:1.7,  roof:true,  blocks:false, hardy:false,
+              tradeBoost:0.22, hint:'+22% trade per landing · 2 crew' },
+  lighthouse:{key:'lighthouse',name:'Lighthouse',  w:2,h:2, need:0.80, cost:620, res:0, staff:1,
+              color:0xe8e2d0, tall:4.4,  roof:false, blocks:false, hardy:false,
+              shipSpeed:0.16, hint:'ships call 16% sooner · 1 crew' },
   breakwater:{key:'breakwater',name:'Breakwater',  w:3,h:1, need:0.0,  cost:240, res:0, staff:0,
               color:0x77716a, tall:0.75, roof:false, blocks:true,  hardy:true,
               maxDepth:BREAKWATER_MAX,
@@ -372,8 +393,8 @@ const NEEDS = [
   { key:'cheer',  name:'Cheer',       icon:'❈', from:'tavern',   col:'#d98ab0',
     short:'A hard shift wants an evening.' },
 ];
-const BUILD_ORDER = ['pontoon','cottage','cistern','fishery','fuelstore','tavern',
-                     'breakwater','jetty','trader','berth'];
+const BUILD_ORDER = ['pontoon','cottage','longhouse','cistern','fishery','fuelstore','tavern',
+                     'breakwater','jetty','trader','berth','warehouse','lighthouse'];
 
 const SHIPS = {
   coaster: { name:'Coaster', draft:2.0, cargo:16,  every:34, len:2.6, col:0x9a8b6e,
@@ -876,8 +897,23 @@ scene.add(openSea);
 
 const C_SHOAL=new THREE.Color(0xe8dcb4), C_SHALLOW=new THREE.Color(0x5fc4b8);
 const C_MID=new THREE.Color(0x2a7a94), C_DEEP=new THREE.Color(0x123a5a);
+// INFO VIEWS. The Skylines idea: paint the world by ONE system so the hole is
+// visible. This only works because coverage is spatial now — with global coverage
+// every cell would be the same colour and the view would say nothing.
 let showExposure = 0;
+let viewMode = 'none';   // none | exposure | water | food | warmth | cheer
 const C_EXPOSED=new THREE.Color(0xc4564a);
+const C_COVER  =new THREE.Color(0x62c46a);
+const C_NOCOVER=new THREE.Color(0xc4564a);
+// Is this cell inside the reach of an open service for `need`?
+function coveredAt(ix, iz, need){
+  for(const s of structures){
+    if(!s.open || !s.serves || !s.serves[need]) continue;
+    const d = Math.hypot((s.x0+s.w/2)-ix, (s.z0+s.h/2)-iz);
+    if(d <= s.radius) return true;
+  }
+  return false;
+}
 
 function paintSea(){
   const col=seaGeo.attributes.color.array;
@@ -896,13 +932,37 @@ function paintSea(){
       else if(d<2.6)      _c.copy(C_SHOAL).lerp(C_SHALLOW, (d-ANCHOR_MAX)/1.6);
       else if(d<6.5)      _c.copy(C_SHALLOW).lerp(C_MID, (d-2.6)/3.9);
       else                _c.copy(C_MID).lerp(C_DEEP, smoothstep(6.5, 12, d));
-      if(showExposure){
-        // Only tint what's actually AT RISK, and gently. A flat 50% red lerp
-        // across all open water turned the whole sea salmon and read as a
-        // rendering fault — an overlay that makes the game look broken is an
-        // overlay nobody leaves on, which defeats the point of showing it.
+      if(viewMode !== 'none'){
         const ix=i%N, iz=(i/N)|0;
-        _c.lerp(C_EXPOSED, smoothstep(0.55, 1.0, exposureAt(ix,iz)) * 0.20);
+        if(viewMode === 'exposure'){
+          // Only tint what's actually AT RISK, and gently. A flat 50% red lerp
+          // across all open water turned the sea salmon and read as a rendering
+          // fault — an overlay that makes the game look broken is one nobody
+          // leaves on, which defeats the point of showing it.
+          _c.lerp(C_EXPOSED, smoothstep(0.55, 1.0, exposureAt(ix,iz)) * 0.30);
+        } else {
+          // Coverage view: green inside a service's reach, red outside — but only
+          // over water you could actually build on, or it's just a stain on the
+          // open sea where nobody will ever live.
+          // This is an OVERLAY, not a tint. Lerping 42% onto the shoal's warm sand
+          // was invisible — red-on-sand is still sand, and that's the exact cell
+          // you're asking about. So: keep the cell's luminance (waves, shading,
+          // the shape of the bank) and paint the verdict over it at full strength,
+          // and desaturate the water you CAN'T build on, so the answer is the only
+          // coloured thing on screen.
+          if(d <= 1.2){
+            const lum = 0.42 + 0.58*(_c.r*0.3 + _c.g*0.6 + _c.b*0.1);
+            _c.copy(coveredAt(ix,iz,viewMode) ? C_COVER : C_NOCOVER).multiplyScalar(lum);
+            // Shallow water is only ~40% opaque so you can see the bank through it,
+            // which diluted the verdict into the sand and turned red into tan — on
+            // the exact cells the view exists to answer for. In a coverage view the
+            // answer is the point, so it goes on opaque.
+            a = 0.94;
+          } else {
+            const l = _c.r*0.3 + _c.g*0.6 + _c.b*0.1;
+            _c.setRGB(l*0.58, l*0.66, l*0.78);
+          }
+        }
       }
     }
     col[i*4]=_c.r; col[i*4+1]=_c.g; col[i*4+2]=_c.b; col[i*4+3]=a;
@@ -1203,40 +1263,98 @@ function posStruct(s){
 // the sea proves it isn't. That chains the score to the entire game:
 //   population ← trade ← docks ← deep water ← exposure ← the storm.
 let population=0, capacity=0, staffNeed=0, trade=0, popT=0, leaveT=0;
+// THE SPINE. Skylines' milestone ladder does two jobs at once — it teaches (here's
+// a problem you're now ready for) and it rewards (here's a new toy for growing) —
+// which is why it never stops working. Mine used to be pure flavour: it announced
+// itself and handed you nothing, while the TUTORIAL did the unlocking and then
+// threw itself away after five minutes. Now the ladder is load-bearing.
+//
+// `needs` is the other half: a need is DORMANT until its tier. A camp doesn't
+// worry about cheer, and — critically — you can't be gated by food before the
+// Fish Stage exists. Needs arrive WITH their solutions.
 const TIERS = [
-  { n:0,   name:'An anchorage' },
-  { n:10,  name:'A camp' },
-  { n:25,  name:'A village' },
-  { n:50,  name:'A town' },
-  { n:100, name:'A port' },
+  { n:0,    name:'An anchorage', gives:['pontoon','cottage','cistern','jetty'], needs:['water'] },
+  { n:10,   name:'A camp',       gives:['fishery','fuelstore','breakwater'],    needs:['food','warmth'] },
+  { n:25,   name:'A village',    gives:['tavern','longhouse','trader'],         needs:['cheer'] },
+  { n:50,   name:'A town',       gives:['warehouse','berth'],                   needs:[] },
+  { n:100,  name:'A port',       gives:['lighthouse'],                          needs:[] },
+  { n:180,  name:'A free port',  gives:[],                                      needs:[] },
+  { n:300,  name:'A great port', gives:[],                                      needs:[] },
+  { n:500,  name:'A city on the water', gives:[],                               needs:[] },
 ];
 const tierOf = p => TIERS.reduce((a,t)=> p>=t.n ? t : a, TIERS[0]);
+// What the town IS, as opposed to what it currently holds. Reached on the high-water
+// mark, so a storm that drowns three people doesn't demote your village back to an
+// anchorage — the unlocks already work this way, and the NAME has to agree with them
+// or the ledger contradicts the palette. You don't stop having been a village.
+const earnedTier = () => TIERS.reduce((a,t)=> tierSeen>=t.n ? t : a, TIERS[0]);
 let tierSeen = 0;
+// A need you have no building for is not a need — it's a trap.
+// Gated on tierSeen (the high-water mark), NOT live population: a milestone must
+// never un-happen. Shrink back to 9 souls and you're still a camp that knows what
+// food is — otherwise needs would flicker on and off as the sea took people.
+const activeNeeds = () =>
+  NEEDS.filter(n => TIERS.some(t => tierSeen >= t.n && t.needs.includes(n.key)));
 
 // Coverage per need = what your OPEN buildings serve ÷ how many souls you have.
 // The WEAKEST need gates growth — the Skylines lesson: a town is only as good as
 // the thing it's worst at, and one missing service stops everything.
+// SPATIAL coverage, like Skylines. Global coverage made placement meaningless —
+// a cistern anywhere served everyone — and made info views impossible, because
+// every cell would be the same colour. A service now reaches `radius` cells and
+// serves up to its capacity within that. Coverage has a SHAPE, so you can see the
+// hole, and where you put things finally matters.
 let cover = { water:1, food:1, warmth:1, cheer:1 };
-function recomputeNeeds(){
-  const served = { water:0, food:0, warmth:0, cheer:0 };
-  for(const s of structures){
-    if(!s.serves || !s.open) continue;
-    for(const k in s.serves) served[k] += s.serves[k];
+const cellDist = (a,b) => Math.hypot((a.x0+a.w/2)-(b.x0+b.w/2), (a.z0+a.h/2)-(b.z0+b.h/2));
+// Who actually lives where: people fill homes in the order they were built, up to
+// each home's berths. An EMPTY cottage doesn't drink. Sharing population out by
+// CAPACITY share instead — the obvious way, and the way this used to work — meant
+// 16 cottages for 3 souls put 0.19 of a person in each, so a service had to reach
+// every empty house to score. Building housing LOWERED coverage, which lowered the
+// growth gate, which stopped the growth that would have filled the housing: a
+// deadlock wearing a difficulty curve's clothes.
+function occupancy(){
+  const live = new Map();
+  let left = population;
+  for(const h of structures){
+    if(h.res <= 0) continue;
+    const take = Math.min(h.res, left);
+    if(take > 0.001) live.set(h, take);
+    left -= take;
+    if(left <= 0.001) break;
   }
-  for(const n of NEEDS)
-    cover[n.key] = population <= 0.01 ? 1 : clamp(served[n.key]/population, 0, 1.4);
-  // Reveal ONLY the worst need's building. Every need goes short the instant you
-  // have people, so unlocking on "is short" dumps all four chips at once — which
-  // is the wall we're trying to avoid. One at a time: solve water, and food
-  // becomes the worst, and the Fish Stage appears exactly when you want it.
-  if(population > 0.5){
-    const w = worstNeed();
-    if(cover[w.key] < 1) unlock(w.from, w.short);
+  return live;
+}
+function recomputeNeeds(){
+  const live  = occupancy();
+  const homes = [...live.keys()];
+  for(const n of NEEDS){
+    if(population <= 0.01){ cover[n.key] = 1; continue; }
+    // Each service spends its capacity on the homes it can actually reach —
+    // greedy and nearest-first, so a cistern parked in the corner serves nobody.
+    const need = new Map(live);
+    let served = 0;
+    for(const s of structures){
+      if(!s.open || !s.serves || !s.serves[n.key]) continue;
+      let budget = s.serves[n.key];
+      const inRange = homes.filter(h=>cellDist(s,h) <= s.radius)
+                           .sort((a,b)=>cellDist(s,a)-cellDist(s,b));
+      for(const h of inRange){
+        if(budget <= 0) break;
+        const take = Math.min(budget, need.get(h));
+        served += take; budget -= take; need.set(h, need.get(h)-take);
+      }
+    }
+    cover[n.key] = clamp(served/population, 0, 1.4);
   }
   return cover;
 }
-const worstNeed = () => NEEDS.reduce((a,n)=> cover[n.key] < cover[a.key] ? n : a, NEEDS[0]);
-const needGate  = () => Math.min(...NEEDS.map(n=>Math.min(1, cover[n.key])));
+// Only ACTIVE needs count — a need whose tier you haven't reached has no building
+// and must not gate anything.
+const worstNeed = () => { const a = activeNeeds();
+  return a.length ? a.reduce((x,n)=> cover[n.key] < cover[x.key] ? n : x, a[0]) : NEEDS[0]; };
+const needGate  = () => { const a = activeNeeds();
+  return a.length ? Math.min(...a.map(n=>Math.min(1, cover[n.key]))) : 1; };
 
 let residents=0;   // kept as an alias for population — staffing reads it
 function restaff(){
@@ -1398,7 +1516,12 @@ function stepShip(sh, dt){
       // Cap raised from 1.2: a port needs trade ≈1.8 just to keep growing, so the
       // old ceiling made 100 souls literally unreachable by trade. It's a runaway
       // guard now, not a balance knob.
-      trade = Math.min(4.0, trade + sh.S.cargo/110);
+      // Warehouses multiply what a landing is WORTH — a town-tier lever aimed at
+      // the exact thing that now gates growth.
+      const boost = 1 + structures.filter(s=>s.tradeBoost && s.open)
+                                  .reduce((a,s)=>a+s.tradeBoost, 0);
+      coin += Math.round(sh.S.cargo * (boost-1));
+      trade = Math.min(4.0, trade + (sh.S.cargo/110) * boost);
       if(sh.dock.key==='berth') clippersLanded++;
       sh.phase='out'; sh.pts.reverse(); sh.seg=0; sh.frac=0;
       sndLand();
@@ -1551,9 +1674,20 @@ function stepPopulation(dt){
 function onPopChange(){
   const t = tierOf(population);
   if(t.n > tierSeen){
+    // Cross every tier we skipped, not just the newest — a big jump must not
+    // swallow the buildings from a rung it stepped over.
+    for(const tier of TIERS){
+      if(tier.n <= tierSeen || tier.n > t.n) continue;
+      for(const k of tier.gives) unlock(k);
+      if(tier.needs.length)
+        flash(`<b>${tier.name}.</b> ${Math.floor(population)} souls — and now they want ${
+          tier.needs.map(k=>NEEDS.find(n=>n.key===k).name.toLowerCase()).join(' and ')}.`);
+      else
+        flash(`<b>${tier.name}.</b> ${Math.floor(population)} souls call this water home.`);
+    }
     tierSeen = t.n;
-    flash(`<b>${t.name}.</b> ${population} souls call this water home.`);
-    if(t.n >= 100) winPort();
+    if(t.n >= 100) markPort();
+    renderTiers();
   }
   restaff(); checkComms();
 }
@@ -1585,7 +1719,10 @@ function step(dt){
   for(const s of structures){
     if(!s.ship || !s.open) continue;
     s.shipT += dt;
-    if(s.shipT >= SHIPS[s.ship].every){
+    // A lighthouse brings them in sooner — the port-tier reward, aimed at trade.
+    const beacon = 1 - Math.min(0.5, structures.filter(x=>x.shipSpeed && x.open)
+                                               .reduce((a,x)=>a+x.shipSpeed, 0));
+    if(s.shipT >= SHIPS[s.ship].every * beacon){
       s.shipT = 0;
       const sh = makeShip(s);
       if(sh) ships.push(sh);
@@ -1666,16 +1803,34 @@ function nextGoal(){
   return [`Keep the ships coming — ${Math.max(0, Math.ceil(capacity-population))} berths still to fill`, 'calm'];
 }
 
+function setView(v){
+  viewMode = (viewMode === v) ? 'none' : v;   // click again to turn it off
+  paintSea();
+  for(const e of document.querySelectorAll('.need')) e.classList.toggle('viewing', e.dataset.n===viewMode);
+  const ex = $('#viewExp'); if(ex) ex.classList.toggle('viewing', viewMode==='exposure');
+}
 function renderNeeds(){
   const el=$('#needs');
   if(!el.children.length){                 // build once, then only update widths
     el.innerHTML = NEEDS.map(n=>
-      `<div class="need" data-n="${n.key}"><span class="ni" style="color:${n.col}">${n.icon}</span>`
+      `<div class="need" data-n="${n.key}" title="Show the ${n.name.toLowerCase()} map">`
+      + `<span class="ni" style="color:${n.col}">${n.icon}</span>`
       + `<span class="nn">${n.name}</span><span class="nb"><i style="background:${n.col}"></i></span>`
-      + `<span class="nv">—</span></div>`).join('');
+      + `<span class="nv">—</span></div>`).join('')
+      + `<div class="need" id="viewExp" title="Show the exposure map">`
+      + `<span class="ni" style="color:#e8927c">◭</span><span class="nn">Exposure</span>`
+      + `<span class="nb"><i style="background:#e8927c;width:0%"></i></span><span class="nv">map</span></div>`;
+    // Click a row to see its map — the ledger row IS the info-view button, so
+    // there's no extra chrome to explain.
+    for(const e of el.querySelectorAll('.need'))
+      e.onclick = () => setView(e.dataset.n || 'exposure');
   }
+  const act = activeNeeds();
   for(const n of NEEDS){
     const row = el.querySelector(`[data-n="${n.key}"]`);
+    const on = act.includes(n);
+    row.hidden = !on;                       // a need you can't have isn't shown
+    if(!on) continue;
     const c = cover[n.key];
     const pct = Math.round(Math.min(1,c)*100);
     row.querySelector('.nb i').style.width = pct+'%';
@@ -1683,6 +1838,7 @@ function renderNeeds(){
     row.querySelector('.nv').textContent = population<0.5 ? '—' : pct+'%';
     row.classList.toggle('short', population>=0.5 && c < 0.999);
   }
+  const ex=$('#viewExp'); if(ex) ex.hidden = !structures.some(s=>s.ship);
 }
 
 // The HUD arrives piece by piece as each thing starts mattering. A 426px wall of
@@ -1715,7 +1871,7 @@ function refreshHUD(){
     pn.classList.add(pop > popShown ? 'up' : 'down');
     popShown = pop;
   }
-  $('#popTier').textContent = tierOf(pop).name;
+  $('#popTier').textContent = earnedTier().name;
   $('#popCap').textContent = `${capacity} berth${capacity===1?'':'s'}`;
   $('#popFill').style.width = (capacity ? Math.min(100, pop/capacity*100) : 0) + '%';
   // Trade is now relative to what the town NEEDS, so show it that way — "brisk"
@@ -1771,6 +1927,24 @@ function unlock(k, why){
   flash(`<b>${TYPES[k].name}</b> — ${why || TYPES[k].hint}`);
 }
 const unlockAll = () => { for(const k of BUILD_ORDER) unlocked.add(k); renderPalette(); };
+// The LADDER owns unlocking now, so "tutorial off" must not mean "have everything".
+// Skipping the tutorial opts you out of being TAUGHT, not out of the milestone
+// ladder — handing over all thirteen chips at skip would make the unlock tiers a
+// formality that one click walks past, which is the opposite of gating.
+const grantEarned = () => { for(const t of TIERS) if(tierSeen >= t.n) for(const k of t.gives) unlocked.add(k);
+                            renderPalette(); };
+// Show what the NEXT rung hands you — a milestone you can't see coming isn't a
+// goal, it's a surprise. This is the "why keep playing" that Skylines gets from
+// its ladder and mine used to throw away.
+function renderTiers(){
+  const el = $('#tierNext'); if(!el) return;
+  const next = TIERS.find(t => t.n > tierSeen);
+  if(!next){ el.hidden = true; return; }
+  el.hidden = false;
+  const gives = next.gives.map(k=>TYPES[k] && TYPES[k].name).filter(Boolean);
+  el.innerHTML = `<span class="tn">${next.name}</span> at <b>${next.n}</b>`
+    + (gives.length ? ` · unlocks ${gives.join(', ')}` : '');
+}
 
 function renderPalette(){
   const el=$('#palette'); el.innerHTML='';
@@ -1853,18 +2027,20 @@ function checkComms(){
   }
   dealComms();
 }
-// Deliberately NOT a game-over. You've reached what you were playing for; the sea
-// is still out there and the harbour is still yours. Fires once.
+// NOT an ending — a landmark you pass. The ladder runs on past it (free port,
+// great port, a city on the water), so 100 souls is the moment someone would have
+// called this a real port, not the moment the game stops having anything to say.
 let won = false;
-function winPort(){
+function markPort(){
   if(won) return;
   won = true;
   const docks = structures.filter(s=>s.ship).length;
   const moles = structures.filter(s=>s.blocks).length;
   $('#winBody').innerHTML =
-    `A hundred people live on water you dredged out of nothing — off ${docks} dock${docks===1?'':'s'}, `
+    `A hundred people live on water that had nothing on it — off ${docks} dock${docks===1?'':'s'}, `
     + `${moles?`${moles} breakwater${moles===1?'':'s'} of your own making, `:''}`
-    + `and ${landed} ships that came in out of the blue because you gave them somewhere to tie up.`;
+    + `and ${landed} ships that came in out of the blue because you gave them somewhere to tie up.`
+    + `<br><br><span style="opacity:.6">The chart calls this a port now. It doesn't call it finished.</span>`;
   $('#win').classList.add('show');
   saveGame(activeSlot);
 }
@@ -1898,7 +2074,8 @@ const TUT = [
     ok:()=>structures.some(s=>s.key==='cottage') },
   { t:'You are surrounded by water nobody can drink. A <b>Cistern</b> catches the rain. Watch the <b>needs</b> in the ledger — the town only grows as well as its worst one.',
     focus:'.chip[data-k="cistern"]',
-    onEnter:()=>unlock('cistern', 'they need water, and the sea is salt'),
+    // NO unlock() here any more — the TIERS own unlocking now. Two systems both
+    // handing you buildings is how the tutorial ends up racing the ladder.
     ok:()=>structures.some(s=>s.key==='cistern') },
   { t:'Now walk pontoons <b>out into the blue</b>. Past the shoal nothing touches bottom, so each plank holds the next — and the sea gets a hold on you.',
     focus:'.chip[data-k="pontoon"]',
@@ -1910,20 +2087,22 @@ const TUT = [
     ok:()=>structures.some(s=>depthAt(idx(s.x0,s.z0))>2.5) },
   { t:'Put a <b>Jetty</b> where it\'s 2.5 m deep and coasters will find you. Press <b>3</b> (Look) and hover the water — it will tell you the depth, and how <b>exposed</b> it is.',
     focus:'.chip[data-k="jetty"]',
-    onEnter:()=>unlock('jetty', 'coasters will call here'),
     ok:()=>structures.some(s=>s.key==='jetty') },
-  { t:'Bigger ships need deeper water, and deeper water is further from the shoal that shelters you. <b>Shelter and money point opposite ways.</b> Watch <b>Worst exposure</b> climb as you reach.',
-    focus:'.chip[data-k="trader"]',
-    onEnter:()=>{ unlock('trader', 'traders — 4.5 m, and further out');
-                  unlock('berth', 'deep berths — 7 m, for clippers'); },
-    ok:()=>structures.some(s=>s.key==='trader'||s.key==='berth') },
-  { t:'Weather\'s coming, from the season\'s quarter — <b>watch the sea and the sky</b>. Anything wide open will take a beating.',
+  // These steps must NOT require a building the ladder hasn't handed out — the
+  // Trader Dock is a village (25 souls), so demanding one here would deadlock the
+  // tutorial for twenty minutes. Ask for the thing the ladder gives you NEXT.
+  { t:'Ships bring trade, and trade brings people — that\'s the whole engine. Watch <b>Population</b> climb, and the ledger tell you what they want.',
+    focus:'#popNum',
+    ok:()=>population >= 4 },
+  { t:'Weather\'s coming, from the season\'s quarter — <b>watch the sea and the sky</b>. Anything wide open will take a beating, and you have nothing to stop it yet.',
     focus:'#weather',
     onEnter:()=>{ armFirstStorm(); },
     ok:()=>stormsSeen > 0 },
-  { t:'That\'s what a <b>Breakwater</b> is for: it founds on the bed to 8.5 m, shrugs off any weather, and blocks the swell. Build your own lee.',
+  { t:'Now you know what the sea does. Grow to a <b>camp</b> — 10 souls — and they\'ll want food and fuel, and you\'ll have earned the <b>Breakwater</b> that answers the weather.',
+    focus:'#popNum',
+    ok:()=>tierSeen >= 10 },
+  { t:'Every milestone hands you what the next problem needs: a <b>camp</b> feeds itself, a <b>village</b> gets the Longhouse and deep trade, a <b>town</b> gets the berths. Build up, or go take another shoal.',
     focus:'.chip[data-k="breakwater"]',
-    onEnter:()=>unlock('breakwater', 'a mole of your own, to make a lee where there wasn\'t one'),
     ok:()=>structures.some(s=>s.key==='breakwater') },
   { t:'Now you know the whole sea. The wind turns with the year, so no berth stays safe — you\'ll be moving your shelter as often as your money. <b>S</b> turns the season, <b>Esc</b> for settings.',
     focus:null,
@@ -1997,9 +2176,10 @@ function renderSettings(){
       v=>{ audioVol = v===2 ? 0.75 : 0.35; setAudio(v>0); });
   seg('#segMus',['Off','On'], ()=>musOn?1:0, v=>{ musOn=!!v;
       if(gMus && AC) gMus.gain.setTargetAtTime(musOn?0.5:0, AC.currentTime, 0.3); });
-  seg('#segEx', ['Off','On'], ()=>showExposure, v=>{ showExposure=v; paintSea(); });
+  // superseded by the info views — click a need row in the ledger instead
+  seg('#segEx', ['Off','On'], ()=>viewMode==='exposure'?1:0, v=>setView(v?'exposure':'none'));
   seg('#segTut',['Hide','Show'], ()=>tutOn?1:0, v=>{ tutOn=!!v;
-      if(!tutOn){ armFirstStorm(); unlockAll(); } renderTut(); refreshHUD(); });
+      if(!tutOn){ armFirstStorm(); grantEarned(); } renderTut(); refreshHUD(); });
 }
 function toggleSettings(force){
   const el=$('#settings');
@@ -2124,12 +2304,13 @@ function updateAudio(){
 // recorded loop cannot do: it THINS as the storm rises, so the wind takes the
 // music's place and hands it back when the sky clears. The score is the weather.
 const SCALE = [0, 2, 3, 5, 7, 8, 10];              // aeolian degrees
-const PROG  = [0, 5, 3, 7];                        // i – VI – IV – v, endlessly
+const PROG  = [0, 5, 3, 4];                        // i – VI – IV – v, endlessly (degrees index SCALE, so 0..6)
 const ROOTS = [55.00, 49.00, 43.65, 58.27];        // one per season: A, G, F, Bb
 let musOn=true, chordI=0, musT=0, melT=0, gMus=null;
 const midi = n => ROOTS[seasonI] * Math.pow(2, n/12);
 function voice(freq, dur, gain, type){
   if(!AC || !gMus) return;
+  if(!isFinite(freq) || freq <= 0) return;   // a bad degree must not throw inside the frame loop
   const t=AC.currentTime;
   const o=AC.createOscillator(), g=AC.createGain(), f=AC.createBiquadFilter();
   o.type=type||'triangle'; o.frequency.value=freq;
@@ -2155,7 +2336,7 @@ function stepMusic(dt){
       const d = SCALE[(deg+off) % 7] + (deg+off >= 7 ? 12 : 0);
       voice(midi(d), 9.5, 0.05, 'triangle');
     }
-    voice(midi(SCALE[deg] - 12), 9.5, 0.04, 'sine'); // a root an octave down
+    voice(midi(SCALE[deg % 7] - 12), 9.5, 0.04, 'sine'); // a root an octave down
   }
   melT -= dt;
   if(melT <= 0){
@@ -2229,9 +2410,11 @@ function loadGame(slot){
   // Old saves predate unlocks — give them everything rather than silently
   // confiscating buildings someone already had.
   unlocked = new Set(d.unl && d.unl.length ? d.unl : BUILD_ORDER);
-  if(!tutOn) unlockAll();
+  // A save from before the ladder has a tierSeen but no unlocks for it — re-grant
+  // every rung it already earned rather than confiscating buildings.
+  for(const t of TIERS) if(tierSeen >= t.n) for(const k of t.gives) unlocked.add(k);
   villagers.length=0; freeNames=[...NAMES]; shipAt.clear(); lastLandingDock=null;
-  rebuildSmoke(); seedGulls();
+  rebuildSmoke(); seedGulls(); renderTiers();
   activeSlot=slot;
   applySeason(); restaff(); renderTut(); renderDocks(); renderPalette();
   renderComms(); refreshHUD();
@@ -2882,8 +3065,9 @@ function init(s){
   stormsSeen=0; stormHeld=true; tutSeen=-1;
   clippersLanded=0; stormsRidden=0; commActive=[]; commDone=[]; dealComms();
   population=0; capacity=0; trade=0; popT=0; tierSeen=0; popShown=-1; won=false;
-  unlocked = new Set(['pontoon','cottage']);
-  if(!tutOn) unlockAll();
+  // The ladder's bottom rung IS the starting toolset now — not a hand-written list.
+  unlocked = new Set(TIERS[0].gives);
+  viewMode = 'none';
   villagers.length=0; freeNames=[...NAMES]; shipAt.clear(); lastLandingDock=null;
   if(crew) crew.count = 0;
   $('#win').classList.remove('show');
@@ -2902,7 +3086,7 @@ function init(s){
     camera.position.set(wx(home.ix)-46, 52, wz(home.iz)+58);
     controls.update();
   }
-  renderPalette(); renderDocks(); renderComms(); refreshHUD();
+  renderPalette(); renderDocks(); renderComms(); renderTiers(); refreshHUD();
 }
 try{
   const o=JSON.parse(localStorage.getItem('ferryfall.opts')||'{}');
@@ -2914,9 +3098,11 @@ init(5);
 applyOpts(); renderTut(); renderSlots();
 
 $('#go').onclick=()=>startNew(firstFreeSlot());
-// Skipping the tutorial means opting out of being TAUGHT, not out of having
-// tools — withholding chips from someone who skipped would just be a puzzle.
-$('#tutSkip').onclick=()=>{ tutOn=false; armFirstStorm(); unlockAll();
+// Skipping the tutorial opts you out of being TAUGHT — it can't opt you out of the
+// ladder. This used to call unlockAll(), which made sense when the tutorial was the
+// only thing gating chips; now that milestones hand them out, one click on "skip"
+// would have handed over all thirteen and made the tiers decorative.
+$('#tutSkip').onclick=()=>{ tutOn=false; armFirstStorm(); grantEarned();
                             renderTut(); refreshHUD(); applyOpts(); };
 $('#winOn').onclick=()=>$('#win').classList.remove('show');
 $('#setClose').onclick=()=>toggleSettings(false);
@@ -2932,7 +3118,11 @@ window.__dbg={
   get structures(){ return structures; }, get banks(){ return banks; },
   get ships(){ return ships; }, get seed(){ return seed; },
   reseed:s=>{ init(s); return seed; },
-  season:i=>{ seasonI=((i%4)+4)%4; applySeason(); return SEASONS[seasonI].name; },
+  // No arg = report. It used to SET on a read: season() made seasonI NaN, which
+  // silently wrecked the season tint and the music's root note. A debug hook that
+  // corrupts state when you look at it is worse than no hook.
+  season:i=>{ if(i!=null && isFinite(i)){ seasonI=((i%4)+4)%4; applySeason(); }
+              return SEASONS[seasonI].name; },
   coin:()=>coin, grant:n=>{ coin+=n; refreshHUD(); renderPalette(); return coin; },
   depth:(ix,iz)=>depthAt(idx(ix,iz)),
   exposure:(ix,iz)=>exposureAt(ix,iz),
@@ -2958,7 +3148,12 @@ window.__dbg={
              tier:tierOf(population).name, won }),
   needs:()=>{ recomputeNeeds(); const o={};
               for(const n of NEEDS) o[n.key]=+cover[n.key].toFixed(2);
-              o._gate=+needGate().toFixed(2); o._worst=worstNeed().key; return o; },
+              o._gate=+needGate().toFixed(2); o._worst=worstNeed().key;
+              o._active=activeNeeds().map(n=>n.key); return o; },
+  tiers:()=>({ seen:tierSeen, now:earnedTier().name, live:tierOf(population).name,
+               next:(TIERS.find(t=>t.n>tierSeen)||{name:'—'}).name,
+               ladder:TIERS.map(t=>`${t.n}:${t.name}${t.gives.length?' ['+t.gives.join(',')+']':''}`) }),
+  view:(v)=>{ if(v!=null) setView(v); return viewMode; },
   speed:(i)=>{ if(i!=null) setSpeed(i); return { speed, mult:SPEEDS[speed] }; },
   villagers:()=>villagers.map(v=>({ name:v.name, home:!!v.home,
     work: v.work ? v.work.name : null, at:[+v.x.toFixed(1), +v.z.toFixed(1)],
