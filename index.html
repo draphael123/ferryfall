@@ -2001,6 +2001,49 @@ function initAudio(){
 
   // MUSIC bus — its own gain so the storm can duck it without touching the sea.
   gMus = AC.createGain(); gMus.gain.value=0.5; gMus.connect(gMaster);
+
+  loadGulls();
+}
+
+// ── gull cries (real recordings) ────────────────────────────────────────────
+// The one place a sample beats synthesis outright — a gull cry is too tonally
+// complex to fake and mine would have sounded like a kazoo. CC0 (Rango Mango,
+// OpenGameArt), no attribution required; credited in CREDITS.md anyway.
+const GULL_FILES = ['seagull_ambient_3.wav','seagull_ambient_4.wav',
+                    'seagull_ambient_5.wav','seagull_ambient_7.wav'];
+let gullBufs=[], gullT=6;
+function loadGulls(){
+  if(gullBufs.length) return;
+  for(const f of GULL_FILES){
+    fetch('audio/'+f).then(r=>r.arrayBuffer()).then(b=>AC.decodeAudioData(b))
+      .then(buf=>gullBufs.push(buf))
+      .catch(()=>{});      // a missing sample must never break the game's audio
+  }
+}
+function cryGull(){
+  if(!AC || !audioOn || !gullBufs.length || !gulls.visible) return;
+  const buf = gullBufs[Math.floor(Math.random()*gullBufs.length)];
+  const s = AC.createBufferSource(); s.buffer = buf;
+  s.playbackRate.value = 0.88 + Math.random()*0.3;   // vary it or the loop shows
+  const g = AC.createGain();
+  // Pan to where a bird actually is, relative to where you're looking. A cry
+  // from off to the left when the gulls are off to the left is most of the trick.
+  const p = AC.createStereoPanner ? AC.createStereoPanner() : null;
+  if(p && gullState.length){
+    const gs = gullState[Math.floor(Math.random()*gullState.length)];
+    const rel = new THREE.Vector3(gs.cx, 0, gs.cz).sub(controls.target);
+    const right = new THREE.Vector3().crossVectors(camera.getWorldDirection(new THREE.Vector3()),
+                                                   new THREE.Vector3(0,1,0)).normalize();
+    p.pan.value = clamp(rel.dot(right)/40, -0.85, 0.85);
+  }
+  g.gain.value = 0.20 * (1 - uStorm.value);          // they go quiet before you do
+  s.connect(g); (p ? (g.connect(p), p.connect(gMaster)) : g.connect(gMaster));
+  s.start();
+}
+function stepGullAudio(dt){
+  if(!AC || !gulls.visible) return;
+  gullT -= dt;
+  if(gullT <= 0){ gullT = 7 + Math.random()*16; cryGull(); }
 }
 function updateAudio(){
   if(!AC || AC.state==='suspended') return;
@@ -2632,8 +2675,8 @@ function frame(){
   updateSmoke(dt);
   updateCrew(dt);
   updateAudio();
-  // real time, not sim time — music must not speed up at 4×
-  if(running) stepMusic(dt);
+  // real time, not sim time — music and birds must not speed up at 4×
+  if(running){ stepMusic(dt); stepGullAudio(dt); }
   if(running){
     simAcc += dt * SPEEDS[speed];
     let guard = 0;
@@ -2737,6 +2780,9 @@ window.__dbg={
               for(const n of NEEDS) o[n.key]=+cover[n.key].toFixed(2);
               o._gate=+needGate().toFixed(2); o._worst=worstNeed().key; return o; },
   speed:(i)=>{ if(i!=null) setSpeed(i); return { speed, mult:SPEEDS[speed] }; },
+  gulls:()=>({ loaded:gullBufs.length, of:GULL_FILES.length, nextCryIn:+gullT.toFixed(1),
+               audible: !!(AC && audioOn && gulls.visible) }),
+  cry:()=>{ cryGull(); return gullBufs.length ? 'played' : 'no buffers loaded'; },
   music:()=>({ on:musOn, bus: gMus ? +gMus.gain.value.toFixed(3) : null,
                chord: chordI, root: ROOTS[seasonI], season: SEASONS[seasonI].name }),
   audio:()=>({ ctx: AC ? AC.state : 'not created', on:audioOn, vol:audioVol,
