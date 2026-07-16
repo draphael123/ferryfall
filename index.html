@@ -256,12 +256,16 @@ const SHIPS = {
 
 // Wind turns with the year. This season's lee is next season's weather side —
 // so no position is permanently safe, and that's the whole point of breakwaters.
+// Golden hour, not noon. A low warm sun throws long shadows off every pontoon and
+// gives the sea something worth reflecting; midday flattens the whole thing.
 const SEASONS = [
-  { name:'Summer', dir:[0,-1],   strength:0.45, tint:0xffe0a0, fog:0xd6e6ea, sky:0x3f7fae },
-  { name:'Autumn', dir:[-1,-0.3],strength:1.0,  tint:0xffcf92, fog:0xd8cfb8, sky:0x5b7f9c },
-  { name:'Winter', dir:[0.2,1],  strength:1.35, tint:0xbcd4ee, fog:0xb9c6d2, sky:0x4a6684 },
-  { name:'Spring', dir:[0.9,0.5],strength:0.7,  tint:0xd8ecc8, fog:0xd2e2dc, sky:0x4c86a6 },
+  { name:'Summer', dir:[0,-1],   strength:0.45, tint:0xffd08a, fog:0xf2ddb8, sky:0x3d7dae },
+  { name:'Autumn', dir:[-1,-0.3],strength:1.0,  tint:0xffb877, fog:0xefcb9c, sky:0x4d6f92 },
+  { name:'Winter', dir:[0.2,1],  strength:1.35, tint:0xd8dcf0, fog:0xd3dae4, sky:0x3c5578 },
+  { name:'Spring', dir:[0.9,0.5],strength:0.7,  tint:0xffdca6, fog:0xe6ddc4, sky:0x4784a8 },
 ];
+// Where the weather takes all of that when it turns.
+const STORM_LOOK = { key:0x8fa0b4, fog:0x6d7b88, sky:0x28323e, keyI:0.5, hemiI:0.42, exposure:0.86 };
 const STORM_EVERY = 95, STORM_LEN = 22;   // seconds
 
 // ═══════════════════════════════════════════════════════════════════════ rng
@@ -473,15 +477,22 @@ controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI*0.47;
 controls.minDistance = 20; controls.maxDistance = 240;
 
-const hemi = new THREE.HemisphereLight(0xbdd8ea, 0x3a4a56, 0.95); scene.add(hemi);
+// Carries the sea. At an 18° golden-hour sun the diffuse on a flat plane is
+// cos(72°) ≈ 0.3, so the open ocean goes near-black and only the specular streak
+// survives — physically correct and visually murky. Sky light fills it back in.
+const hemi = new THREE.HemisphereLight(0xcfe4f2, 0x40525e, 1.35); scene.add(hemi);
 // A second, tight, low light purely to strike a glint off the water. Flat teal
 // with no specular streak is what reads as plastic; the sun's path on the sea is
 // most of what says "this is water" at a glance.
-const glint = new THREE.DirectionalLight(0xfff2d0, 0.75);
+const glint = new THREE.DirectionalLight(0xfff2d0, 0.42);
 glint.position.set(90, 22, -70);
 scene.add(glint);
-const key = new THREE.DirectionalLight(0xffe0a0, 2.7);
-key.position.set(-70,86,50); key.castShadow = true;
+// Low and warm — golden hour. A high noon sun casts stubby shadows and makes the
+// whole sea read flat; dropping it to y≈38 rakes long shadows off every pontoon.
+// ~27°: late afternoon rather than literal sunset. At 18° the shadows were
+// gorgeous and the sea was mud; this keeps the long rake and stays readable.
+const key = new THREE.DirectionalLight(0xffd08a, 2.9);
+key.position.set(-92,54,60); key.castShadow = true;
 key.shadow.mapSize.set(2048,2048);
 key.shadow.bias = -0.0005; key.shadow.normalBias = 0.7;
 { const sc=key.shadow.camera; sc.left=-SPAN*0.55; sc.right=SPAN*0.55; sc.top=SPAN*0.55; sc.bottom=-SPAN*0.55;
@@ -545,15 +556,22 @@ const seaGeo = new THREE.BufferGeometry();
   seaGeo.setIndex(ind);
   seaGeo.computeVertexNormals();   // MANDATORY: no normals ⇒ zero normal ⇒ black sea
 }
-const uTime={value:0}, uSwell={value:0};
+const uTime={value:0}, uSwell={value:0}, uStorm={value:0};
+// 0.18 makes the specular lobe so tight that every wave normal catches it, and
+// the sea breaks out in scattered white patches that read as foam, not glitter.
+// 0.32 keeps the sun path and loses the measles.
 const seaMat = new THREE.MeshStandardMaterial({ vertexColors:true, transparent:true,
-  roughness:0.18, metalness:0.0, depthWrite:false, side:THREE.DoubleSide });
+  roughness:0.32, metalness:0.0, depthWrite:false, side:THREE.DoubleSide });
 seaMat.onBeforeCompile = sh => {
-  sh.uniforms.uTime = uTime; sh.uniforms.uSwell = uSwell;
-  sh.vertexShader = 'uniform float uTime;\nuniform float uSwell;\nattribute float aDepth;\nvarying float vDepth;\n'
+  sh.uniforms.uTime = uTime; sh.uniforms.uSwell = uSwell; sh.uniforms.uStorm = uStorm;
+  sh.vertexShader = 'uniform float uTime;\nuniform float uSwell;\nattribute float aDepth;\nvarying float vDepth;\nvarying float vWave;\n'
     + sh.vertexShader.replace('#include <begin_vertex>',
     `#include <begin_vertex>
      vDepth = aDepth;
+     // hand the raw crest height to the fragment stage — whitecaps break on
+     // crests, so the foam has to know where the crests actually are
+     vWave = sin(transformed.x*0.28 + uTime*1.5) * 0.6
+           + sin(transformed.z*0.36 - uTime*1.9) * 0.4;
      float sw = 0.05 + uSwell*0.42;
      // shallow water doesn't heave — damp the swell as it shoals, or the surf
      // line detaches from the sand and the whole shoal looks like it's floating
@@ -582,7 +600,7 @@ seaMat.onBeforeCompile = sh => {
   // Surf. Bands run along the depth contours and crawl shoreward, which means
   // they trace a bright animated line around EXACTLY the water you can found on.
   // The prettiest thing here is also the clearest bit of teaching in the game.
-  sh.fragmentShader = 'uniform float uTime;\nuniform float uSwell;\nvarying float vDepth;\n'
+  sh.fragmentShader = 'uniform float uTime;\nuniform float uSwell;\nuniform float uStorm;\nvarying float vDepth;\nvarying float vWave;\n'
     + sh.fragmentShader.replace('#include <color_fragment>',
     `#include <color_fragment>
      // Surf rings the shoal RIM, not its crest. Over the crest the water is only
@@ -593,6 +611,19 @@ seaMat.onBeforeCompile = sh => {
      float ring  = smoothstep(3.3, 1.15, vDepth) * smoothstep(0.35, 1.05, vDepth);
      float bands = 0.5 + 0.5*sin(vDepth*8.5 - uTime*1.7);
      float foam  = ring * (0.3 + 0.7*bands) * (0.55 + uSwell*0.75);
+
+     // Storm dressing. Whitecaps break on the crests, out in the open where
+     // nothing shelters you — so the sea itself shows you the exposure you were
+     // reading off a HUD number. Deep water gets them; the lee of a shoal barely
+     // does, because the swell is damped there.
+     float capNoise = 0.5 + 0.5*sin(vDepth*3.1 + uTime*4.3);
+     float caps = smoothstep(0.45, 0.95, vWave) * uStorm
+                * smoothstep(1.2, 3.5, vDepth) * (0.55 + 0.45*capNoise);
+     foam = max(foam, caps*0.85);
+
+     // and the water itself goes cold and dark when it turns
+     vec3 grim = mix(diffuseColor.rgb, vec3(0.09,0.13,0.18), 0.55);
+     diffuseColor.rgb = mix(diffuseColor.rgb, grim, uStorm*0.75);
      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95,0.99,1.0), clamp(foam,0.0,0.95));`);
 };
 const seaMesh = new THREE.Mesh(seaGeo, seaMat); seaMesh.renderOrder = 2; scene.add(seaMesh);
@@ -789,8 +820,65 @@ function addStructMesh(s){
       rf.position.y=0.17+s.tall+0.45; rf.rotation.y=Math.PI/4; rf.castShadow=true; g.add(rf);
     }
   }
+  addDetail(s, g, cw, ch);
   structGroup.add(g); s.mesh=g;
   posStruct(s);
+}
+
+// Character. Everything was a box on a box, which at this camera height reads as
+// programmer art — and worse, every building read as the SAME building.
+const woodM = new THREE.MeshStandardMaterial({ color:0x6b543a, roughness:0.9 });
+const ropeM = new THREE.MeshStandardMaterial({ color:0x9c8659, roughness:1.0 });
+const stoneM= new THREE.MeshStandardMaterial({ color:0x8a837a, roughness:0.95 });
+function addDetail(s, g, cw, ch){
+  const r = mulberry32(s.uid*97+11);
+  const post=(x,z,h,rad)=>{ const p=new THREE.Mesh(
+      new THREE.CylinderGeometry(rad||0.1, (rad||0.1)*1.15, h, 6), woodM);
+    p.position.set(x, h/2-0.16, z); p.castShadow=true; g.add(p); return p; };
+
+  if(s.key==='cottage'){
+    const ch2=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.7,0.24), stoneM);
+    ch2.position.set(cw*0.19, 0.17+s.tall+0.5, ch*0.16); ch2.castShadow=true; g.add(ch2);
+    // a little washing line, because someone lives here
+    const pole=post(-cw*0.32, -ch*0.3, 0.9, 0.045); pole.material=woodM;
+    for(let k=0;k<3;k++){
+      const rag=new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.2),
+        new THREE.MeshStandardMaterial({ color:[0xd8cfc0,0xb85c4a,0x9db6ec][k],
+                                         roughness:1, side:THREE.DoubleSide }));
+      rag.position.set(-cw*0.32+0.14+k*0.16, 0.62, -ch*0.3);
+      rag.rotation.y=Math.PI/2; g.add(rag);
+    }
+  }
+  if(s.key==='pontoon'){
+    for(const [px,pz] of [[-cw*0.34,-ch*0.34],[cw*0.34,ch*0.34]]) post(px,pz,0.5,0.07);
+  }
+  if(s.key==='breakwater'){
+    // rubble, not a wall — scatter blocks along it
+    for(let k=0;k<9;k++){
+      const b=new THREE.Mesh(new THREE.BoxGeometry(0.3+r()*0.4, 0.3+r()*0.35, 0.3+r()*0.4), stoneM);
+      b.position.set((r()-0.5)*cw*0.86, 0.18+r()*0.32, (r()-0.5)*ch*0.7);
+      b.rotation.set(r()*0.5, r()*3.14, r()*0.5); b.castShadow=true; g.add(b);
+    }
+  }
+  if(s.ship){
+    // pilings around the berth, plus cargo waiting on the boards
+    for(const [px,pz] of [[-cw*0.4,-ch*0.4],[cw*0.4,-ch*0.4],[-cw*0.4,ch*0.4],[cw*0.4,ch*0.4]])
+      post(px,pz, 1.0 + r()*0.3, 0.1);
+    const n = s.key==='jetty'?2 : s.key==='trader'?4 : 6;
+    for(let k=0;k<n;k++){
+      const c=new THREE.Mesh(new THREE.BoxGeometry(0.42,0.36,0.42),
+        new THREE.MeshStandardMaterial({ color:k%2?0x9a7a4e:0x7d6a44, roughness:0.9 }));
+      c.position.set((r()-0.5)*cw*0.55, 0.36, (r()-0.5)*ch*0.55);
+      c.rotation.y=r()*0.8; c.castShadow=true; g.add(c);
+    }
+    if(s.key!=='jetty'){       // a crane on the bigger berths
+      const mast=post(cw*0.22, -ch*0.22, 2.2, 0.09);
+      const jib=new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 1.5), woodM);
+      jib.position.set(cw*0.22, 1.95, -ch*0.22+0.6); jib.castShadow=true; g.add(jib);
+      const line=new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,0.9,4), ropeM);
+      line.position.set(cw*0.22, 1.5, -ch*0.22+1.3); g.add(line);
+    }
+  }
 }
 function posStruct(s){ s.mesh.position.set(wx(s.x0)+(s.w-1)*CS/2, WL, wz(s.z0)+(s.h-1)*CS/2); }
 
@@ -811,6 +899,87 @@ function restaff(){
 const shipGroup=new THREE.Group(); scene.add(shipGroup);
 let ships=[], coin=START_COIN, clock=0, landed=0, running=false;
 const _p=new THREE.Vector3();
+
+// A tapered hull, not a box. Built by hand because a box with a cone stuck on the
+// front reads as a box with a cone stuck on the front — the sheer and the taper
+// are most of what says "boat" at this size.
+function makeHull(S){
+  const g=new THREE.Group();
+  const L=S.len, W=S.len*0.34;
+  const shape=new THREE.Shape();
+  shape.moveTo(0, L*0.52);                        // bow
+  shape.bezierCurveTo(W*0.62, L*0.30, W*0.5, -L*0.28, W*0.40, -L*0.48);
+  shape.lineTo(-W*0.40, -L*0.48);                 // transom
+  shape.bezierCurveTo(-W*0.5, -L*0.28, -W*0.62, L*0.30, 0, L*0.52);
+  const hull=new THREE.Mesh(new THREE.ExtrudeGeometry(shape,
+      { depth:0.62, bevelEnabled:true, bevelSize:0.09, bevelThickness:0.07, bevelSegments:2 }),
+    new THREE.MeshStandardMaterial({ color:0x7d6a4e, roughness:0.85 }));
+  hull.rotation.x = Math.PI/2;                    // extrude runs +Z → stand it up
+  hull.position.y = 0.62;
+  hull.castShadow = true; g.add(hull);
+  const deck=new THREE.Mesh(new THREE.BoxGeometry(W*0.72, 0.08, L*0.5),
+    new THREE.MeshStandardMaterial({ color:0xa08a63, roughness:0.9 }));
+  deck.position.set(0, 0.66, -L*0.06); g.add(deck);
+  const cabin=new THREE.Mesh(new THREE.BoxGeometry(W*0.5, 0.34, L*0.2),
+    new THREE.MeshStandardMaterial({ color:0x6b4f3a, roughness:0.85 }));
+  cabin.position.set(0, 0.84, -L*0.28); cabin.castShadow=true; g.add(cabin);
+  const mast=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.075, L*0.85, 6),
+    new THREE.MeshStandardMaterial({ color:0x5a4a36 }));
+  mast.position.set(0, 0.7+L*0.42, L*0.02); mast.castShadow=true; g.add(mast);
+  for(const [h,w,z] of [[0.52,0.62,0.10],[0.34,0.42,-0.12]]){
+    const sail=new THREE.Mesh(new THREE.PlaneGeometry(W*1.15*w*1.6, L*h),
+      new THREE.MeshStandardMaterial({ color:0xf0e8d4, roughness:0.95,
+                                       side:THREE.DoubleSide }));
+    sail.position.set(0, 0.8+L*h*0.55, L*z);
+    sail.rotation.y = Math.PI/2;
+    sail.castShadow=true; g.add(sail);
+  }
+  return g;
+}
+
+// Wake: a ribbon built from where the ship has actually been, widening and fading
+// astern. Cheaper and truer than a fixed quad — it curves when the ship turns.
+const WAKE_N = 26;
+function makeWake(){
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(WAKE_N*2*3), 3));
+  g.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(WAKE_N*2*4), 4));
+  const ind=[];
+  for(let i=0;i<WAKE_N-1;i++){
+    const a=i*2, b=i*2+1, c=(i+1)*2, d=(i+1)*2+1;
+    ind.push(a,c,b, b,c,d);
+  }
+  g.setIndex(ind);
+  const m=new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors:true,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide, toneMapped:false }));
+  m.renderOrder=3; m.frustumCulled=false;
+  shipGroup.add(m);
+  return m;
+}
+function updateWake(sh){
+  const t=sh.trail;
+  if(t.length<2){ sh.wake.visible=false; return; }
+  sh.wake.visible=true;
+  const pos=sh.wake.geometry.attributes.position.array;
+  const col=sh.wake.geometry.attributes.color.array;
+  for(let i=0;i<WAKE_N;i++){
+    const k=Math.min(i, t.length-1);
+    const p=t[k], q=t[Math.max(0,k-1)];
+    let dx=p.x-q.x, dz=p.z-q.z;
+    const L=Math.hypot(dx,dz)||1; dx/=L; dz/=L;
+    const nx=-dz, nz=dx;                             // sideways
+    const age=i/(WAKE_N-1);
+    const w=sh.S.len*(0.13 + age*0.42);              // widens astern
+    const a=(1-age)*(1-age)*0.5;                     // and fades out
+    pos[i*6+0]=p.x+nx*w; pos[i*6+1]=WL+0.07; pos[i*6+2]=p.z+nz*w;
+    pos[i*6+3]=p.x-nx*w; pos[i*6+4]=WL+0.07; pos[i*6+5]=p.z-nz*w;
+    for(const o of [0,4]){
+      col[i*8+o+0]=1; col[i*8+o+1]=1; col[i*8+o+2]=1; col[i*8+o+3]=a;
+    }
+  }
+  sh.wake.geometry.attributes.position.needsUpdate=true;
+  sh.wake.geometry.attributes.color.needsUpdate=true;
+}
 
 function berthFor(s){
   const need = SHIPS[s.ship].draft;
@@ -836,18 +1005,11 @@ function makeShip(dock){
   const from=edgeSpawn(S.draft); if(!from) return null;
   const path=findPath(from, berth, S.draft); if(!path) return null;
   const g=new THREE.Group();
-  const hull=new THREE.Mesh(new THREE.BoxGeometry(S.len*0.42, 0.7, S.len),
-    new THREE.MeshStandardMaterial({ color:0x8d7a5c, roughness:0.8 }));
-  hull.position.y=0.3; hull.castShadow=true; g.add(hull);
-  const mast=new THREE.Mesh(new THREE.BoxGeometry(0.12, S.len*0.7, 0.12),
-    new THREE.MeshStandardMaterial({ color:0x5a4a36 }));
-  mast.position.y=0.65+S.len*0.35; g.add(mast);
-  const sail=new THREE.Mesh(new THREE.BoxGeometry(0.08, S.len*0.42, S.len*0.34),
-    new THREE.MeshStandardMaterial({ color:0xe8e0cc, roughness:0.9 }));
-  sail.position.set(0, 0.75+S.len*0.3, -S.len*0.06); sail.castShadow=true; g.add(sail);
+  g.add(makeHull(S));
   shipGroup.add(g);
+  const wake = makeWake();
   const pts = path.map(c=>new THREE.Vector3(wx(c.ix), WL, wz(c.iz)));
-  return { mesh:g, pts, seg:0, frac:0, dwell:0, phase:'in', dock, S };
+  return { mesh:g, pts, seg:0, frac:0, dwell:0, phase:'in', dock, S, wake, trail:[] };
 }
 function stepShip(sh, dt){
   if(sh.dwell>0){
@@ -876,7 +1038,16 @@ function stepShip(sh, dt){
   _p.copy(a).lerp(b, sh.frac);
   sh.mesh.position.set(_p.x, WL+0.1 + Math.sin(clock*1.6+sh.seg)*0.05*(1+swell*2), _p.z);
   if(a.distanceToSquared(b)>1e-6) sh.mesh.rotation.y = Math.atan2(b.x-a.x, b.z-a.z);
-  sh.mesh.rotation.z = Math.sin(clock*1.3+sh.seg)*0.03*(1+swell*4);
+  // pitch as well as roll — a hull that only rolls looks like it's on rails
+  sh.mesh.rotation.z = Math.sin(clock*1.3+sh.seg)*0.05*(1+swell*5);
+  sh.mesh.rotation.x = Math.sin(clock*0.9+sh.seg*0.7)*0.03*(1+swell*5);
+  // record where it's been, bow-first, for the wake ribbon
+  const last=sh.trail[0];
+  if(!last || Math.hypot(last.x-_p.x, last.z-_p.z) > 0.5){
+    sh.trail.unshift({x:_p.x, z:_p.z});
+    if(sh.trail.length>WAKE_N) sh.trail.length=WAKE_N;
+  }
+  updateWake(sh);
 }
 
 // ═════════════════════════════════════════════════════════════════════ storms
@@ -894,6 +1065,8 @@ function stepWeather(dt){
   const target = ph==='storm' ? 1 : ph==='rising' ? 0.35 : 0.06;
   swell = lerp(swell, target, 1-Math.exp(-dt*0.6));
   uSwell.value = swell;
+  uStorm.value = clamp((swell-0.06)/0.94, 0, 1);
+  applyWeatherLook();
   if(!stormOn) return;
   const S = SEASONS[seasonI].strength;
   let lost=null;
@@ -943,7 +1116,11 @@ function step(dt){
     }
   }
   for(const sh of ships) stepShip(sh, dt);
-  for(let i=ships.length-1;i>=0;i--) if(ships[i].done){ shipGroup.remove(ships[i].mesh); ships.splice(i,1); }
+  for(let i=ships.length-1;i>=0;i--) if(ships[i].done){
+    shipGroup.remove(ships[i].mesh);
+    if(ships[i].wake){ shipGroup.remove(ships[i].wake); ships[i].wake.geometry.dispose(); }
+    ships.splice(i,1);
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════ tools
@@ -1263,14 +1440,29 @@ for(const el of document.querySelectorAll('.tool')) el.onclick=()=>setTool(el.da
 $('#repairBtn').onclick = repairAll;
 
 function applySeason(){
-  const S=SEASONS[seasonI];
-  key.color.setHex(S.tint);
-  scene.fog.color.setHex(S.fog);
-  // The horizon must match the fog exactly or the sea meets the sky at a seam.
-  skyMat.uniforms.bot.value.setHex(S.fog);
-  skyMat.uniforms.top.value.setHex(S.sky);
+  applyWeatherLook();
   paintSea();          // the wind moved → the shelter map moved
   refreshHUD(); renderDocks();
+}
+
+// The whole look is a lerp from the season's golden hour toward the storm. Called
+// every frame so weather ARRIVES rather than switching — the sky going out is
+// the warning the HUD number could never give.
+const _cA=new THREE.Color(), _cB=new THREE.Color();
+function applyWeatherLook(){
+  const S=SEASONS[seasonI], m=uStorm.value;
+  key.color.copy(_cA.setHex(S.tint).lerp(_cB.setHex(STORM_LOOK.key), m));
+  key.intensity = lerp(2.9, STORM_LOOK.keyI, m);
+  hemi.intensity = lerp(1.35, STORM_LOOK.hemiI, m);
+  glint.intensity = lerp(0.42, 0.03, m);           // no sun path through cloud
+  scene.fog.color.copy(_cA.setHex(S.fog).lerp(_cB.setHex(STORM_LOOK.fog), m));
+  scene.fog.near = lerp(95, 34, m);                // the horizon closes in
+  scene.fog.far  = lerp(265, 150, m);
+  // The horizon must match the fog exactly or the sea meets the sky at a seam.
+  skyMat.uniforms.bot.value.copy(_cA.setHex(S.fog).lerp(_cB.setHex(STORM_LOOK.fog), m));
+  skyMat.uniforms.top.value.copy(_cA.setHex(S.sky).lerp(_cB.setHex(STORM_LOOK.sky), m));
+  renderer.toneMappingExposure = lerp(1.16, STORM_LOOK.exposure, m);
+  openSea.material.color.copy(_cA.setHex(0x123a5a).lerp(_cB.setHex(0x0c1620), m));
 }
 
 // ══════════════════════════════════════════════════════════════ post / render
